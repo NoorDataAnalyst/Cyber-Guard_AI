@@ -1,142 +1,225 @@
-# 🛡️ Cyberbullying Detection & Governance System
+# 🛡️ CyberGuard AI — Cyberbullying Detection & RAG Governance
 
-A context-aware, emotion-aware, retrieval-augmented reasoning (RAG) cyberbullying detection and classification platform built with Python, HuggingFace transformers, FAISS vector search, Claude LLM reasoning, deterministic policy engine, and Streamlit.
-
----
-
-## 🌟 Key Features
-
-1. **Context-Aware Reasoning**: Analyzes flagged messages in the context of preceding conversation history thread, catching subtle and indirect bullying that single-message filters miss.
-2. **Emotion Signal Layer**: Incorporates fine-grained emotion signals (`SamLowe/roberta-base-go_emotions`) alongside multi-label toxicity probabilities (`unitary/toxic-bert`) to inform the reasoning stage.
-3. **Retrieval-Augmented Generation (FAISS RAG)**:
-   - **Conversation Thread Context Index**: Retrieves last $N$ messages from active thread.
-   - **Precedent Example Bank Index**: Retrieves top-k semantically similar labeled precedent examples from curated example bank.
-   - **Legal & Policy Corpus Index**: Retrieves verified legal provisions (e.g. **Pakistan PECA 2016** Sections 20, 21, 24, and **FIA Cybercrime Wing** guidelines) to ground user-facing reports.
-4. **Dual Reporting Pathways**:
-   - **Automatic Detection**: Signal layer scans incoming chat messages in real time.
-   - **Manual User Report**: Chat feed provides a direct 🚩 **Report Message** button allowing users to flag suspicious/sarcastic content.
-5. **Dual Action Enforcement Mechanisms**:
-   - **Automated Tool Restrictions**: Policy engine enforces soft warnings, conversation mutes, or message blocks based on severity.
-   - **Admin Manual Authority**: Admin Dashboard enables human moderators to inspect full RAG context, view internal explanations, and manually **Block User**, **Unblock User**, **Override Severity**, or **Dismiss Flags**.
-6. **No Scratch Model Training**: Uses public open-weights models for inference only. Nuanced classification is handled by a single LLM reasoning agent.
+> A production-grade, multi-signal cyberbullying detection system powered by Toxic-BERT, RoBERTa emotion classifiers, 3-index FAISS RAG retrieval, and an LLM reasoning agent (Gemini / Claude) — with a full governance layer, dual-backend persistence (Supabase Postgres + SQLite), and a modular Streamlit UI.
 
 ---
 
-## 🏗️ Sequential Architecture
+## 📸 Overview
 
-```
-[ Incoming Message / Manual User Report ]
-                   │
-                   ▼
-  [ SIGNAL LAYER (Fast Pretrained ML Inference) ]
-    ├─ Toxicity Classifier (unitary/toxic-bert)
-    └─ Emotion Classifier  (SamLowe/roberta-base-go_emotions)
-                   │
-                   ▼
-       [ FLAG DECISION GATE ]
-         ├─ If Clean  ──> Log as clean & stop
-         └─ If Flagged ─> Proceed to RAG
-                   │
-                   ▼
-   [ RETRIEVAL LAYER (3 FAISS CPU Vector Indices) ]
-    ├─ (a) Thread Context History
-    ├─ (b) Precedent Example Bank (data/examples/example_bank.csv)
-    └─ (c) Legal & Policy Corpus  (data/policy_docs/policy_corpus.csv)
-                   │
-                   ▼
-       [ LLM REASONING AGENT ] (Claude / Gemini API)
-         └─ Strict JSON Output: {is_true_positive, category, severity, confidence, explanation}
-                   │
-                   ▼
-       [ DETERMINISTIC POLICY ENGINE ]
-         └─ Severity -> Action Mapping (none, soft warning, mute sender, block message)
-                   │
-                   ▼
-       [ USER-FACING REPORT GENERATOR ] (Only for warn/mute/block)
-         └─ Cites retrieved PECA 2016 / FIA Pakistan legal snippets + Legal Disclaimer
-                   │
-                   ▼
-   [ SQLite LOGGING & STREAMLIT DUAL-VIEW INTERFACE ]
-    ├─ 💬 Live Chat Feed (with manual 🚩 Report buttons & explanation drawers)
-    └─ 📊 Admin Governance Dashboard (with RAG inspection & manual overrides)
-```
+| Feature | Implementation |
+|---|---|
+| **Signal Layer** | `toxic-bert` (toxicity) + `roberta-go-emotions` (emotion) |
+| **RAG Retrieval** | 3-index FAISS: thread context, precedent examples, legal policy |
+| **LLM Reasoning** | Gemini Flash / Anthropic Claude structured verdict agent |
+| **Policy Engine** | Severity → action rules (warn / mute 30-min / block) |
+| **Persistence** | SQLAlchemy ORM — Supabase Postgres or local SQLite fallback |
+| **Governance** | Admin dashboard, manual overrides, appeal workflow |
+| **Analytics** | Plotly charts — severity donut, category bar, detection gauge |
+| **UI** | Streamlit + `streamlit-option-menu` horizontal nav, dark glassmorphism |
 
 ---
 
-## 🚀 Setup & Installation Instructions
+## 🚀 Quickstart (Local Development)
 
-### 1. Prerequisites
-- Python 3.10 or 3.11
-- Pip package manager
+### 1. Clone & create a virtual environment
 
-### 2. Installation
 ```bash
-# Clone or navigate to the project directory
+git clone <your-repo-url>
 cd cyberbullying-detector
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+source .venv/bin/activate
+```
 
-# Create and activate virtual environment (optional)
-python -m venv venv
-venv\Scripts\activate   # On Windows
-source venv/bin/activate # On Linux/macOS
+### 2. Install dependencies
 
-# Install dependencies
+```bash
 pip install -r requirements.txt
 ```
 
-### 3. Environment Configuration
-Copy `.env.example` to `.env` and add your API key:
+### 3. Configure environment variables
+
+Copy `.env.example` → `.env` and fill in your credentials:
+
 ```bash
 cp .env.example .env
 ```
-Inside `.env`:
-```env
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-# Optional Gemini fallback
-GEMINI_API_KEY=your_gemini_api_key_here
-```
-*Note: If no API key is provided, the system seamlessly uses its built-in grounded rule-based reasoning engine without crashing.*
 
-### 4. Running the Streamlit Application
+**`.env` keys:**
+
+| Variable | Description |
+|---|---|
+| `LLM_PROVIDER` | `gemini` or `anthropic` |
+| `GEMINI_API_KEY` | Your Google Gemini API key |
+| `ANTHROPIC_API_KEY` | Your Anthropic Claude API key |
+| `ADMIN_PASSWORD` | Password to unlock the Admin Dashboard |
+| `DATABASE_URL` | *(Optional)* Supabase Postgres connection string — leave blank for local SQLite |
+
+### 4. Run the app
+
 ```bash
 streamlit run app.py
 ```
 
-### 5. Running the Unit Test Suite
+The app will be available at `http://localhost:8501`.
+
+---
+
+## ☁️ Supabase Setup (Production Persistence)
+
+To use **Supabase Postgres** instead of local SQLite:
+
+### Step 1 — Create a Supabase project
+
+1. Go to [https://supabase.com](https://supabase.com) and create a new project.
+2. Navigate to **Settings → Database → Connection string → URI**.
+3. Copy the `postgres://...` connection string.
+
+### Step 2 — Configure the connection string
+
+**Option A: `.env` file (local development)**
+
+```env
+DATABASE_URL=postgresql://postgres:<your-password>@db.<your-project-ref>.supabase.co:5432/postgres
+```
+
+> ⚠️ Replace `postgres://` with `postgresql://` if needed — SQLAlchemy 2.0 requires `postgresql://`.
+
+**Option B: Streamlit Cloud secrets (deployment)**
+
+In your Streamlit Cloud dashboard → App settings → Secrets, add:
+
+```toml
+DATABASE_URL = "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres"
+ADMIN_PASSWORD = "your_secure_admin_password"
+GEMINI_API_KEY = "your_gemini_key"
+```
+
+### Step 3 — Tables are auto-created
+
+SQLAlchemy will automatically run `CREATE TABLE IF NOT EXISTS` for all ORM models on first launch. No manual migrations needed.
+
+---
+
+## ☁️ Streamlit Cloud Deployment
+
+1. Push your repo to GitHub.
+2. Go to [https://share.streamlit.io](https://share.streamlit.io) → **New app**.
+3. Select your repo, branch, and set **Main file path** to `app.py`.
+4. Under **Advanced settings → Secrets**, paste your secrets in TOML format (see above).
+5. Click **Deploy**.
+
+> **Tip:** Add `.env` and `.streamlit/secrets.toml` to your `.gitignore` — never commit credentials!
+
+---
+
+## 🔑 Admin Dashboard
+
+The **Admin Governance Dashboard** is accessible within the **Home** tab → **Admin Governance Dashboard** sub-tab.
+
+- Enter the `ADMIN_PASSWORD` from your `.env` / Streamlit secrets to unlock.
+- Once authenticated, the session persists for the browser session (`st.session_state["is_admin"]`).
+- Admin capabilities:
+  - **Approve or Reject** user account appeals (blocked users can submit appeals from the Live Feed)
+  - **Force Block / Unblock** users from the flagged verdict audit table
+  - **Dismiss flags** that are false positives
+  - Add **admin notes** to all override actions (all logged in the `actions` table)
+
+---
+
+## 🧪 Running Tests
+
+All tests use **in-memory SQLite** — no live Supabase connection or API keys required.
+
 ```bash
+# Run the full test suite
 python tests/run_all_tests.py
+
+# Or run specific new test modules with pytest
+pytest tests/test_db_sqlalchemy.py -v
+pytest tests/test_appeals.py -v
+
+# Run all tests with pytest
+pytest tests/ -v
+```
+
+### Test modules
+
+| File | Covers |
+|---|---|
+| `test_db_sqlalchemy.py` | SQLAlchemy ORM CRUD — users, messages, analytics, restrictions |
+| `test_appeals.py` | Full appeal workflow — create, get_pending, approve, reject, edge cases |
+| `test_pipeline.py` | Pipeline flow — restriction pre-check, verdict dispatch |
+| `test_policy.py` | Policy engine — severity → action rules, admin overrides |
+| `test_preprocessing.py` | Text cleaning and normalization |
+| `test_toxicity.py` | Toxicity classifier outputs |
+| `test_emotion.py` | Emotion classifier outputs |
+| `test_retrieval.py` | FAISS RAG retrieval correctness |
+| `test_llm_agent.py` | LLM agent verdict structure |
+| `test_db.py` | Legacy DB helper compatibility |
+
+---
+
+## 📁 Project Structure
+
+```
+cyberbullying-detector/
+├── app.py                      ← Thin Streamlit router (option-menu nav)
+├── requirements.txt
+├── .env.example
+├── .streamlit/
+│   └── secrets.toml.example
+├── src/
+│   ├── config.py               ← Constants, paths, severity levels
+│   ├── db.py                   ← SQLAlchemy ORM + dual-backend persistence
+│   ├── pipeline.py             ← 8-step detection pipeline
+│   ├── policy.py               ← Severity → action rules, admin overrides
+│   ├── preprocessing.py        ← Text cleaning
+│   ├── toxicity_classifier.py  ← toxic-bert inference
+│   ├── emotion_classifier.py   ← roberta-go-emotions inference
+│   ├── retrieval.py            ← 3-index FAISS RAG retrieval
+│   ├── llm_agent.py            ← Gemini / Claude LLM reasoning agent
+│   └── ui/
+│       ├── home.py             ← Live Feed + Admin Governance Dashboard
+│       ├── stats.py            ← Plotly Analytics tab
+│       ├── features.py         ← Feature overview tab
+│       ├── tech_stack.py       ← Technology stack tab
+│       ├── team.py             ← Team & Acknowledgements tab
+│       └── about.py            ← About & legal disclaimer tab
+├── data/
+│   ├── examples/               ← Cyberbullying precedent corpus
+│   └── policy/                 ← PECA 2016 / FIA policy snippets
+└── tests/
+    ├── test_appeals.py         ← Appeal workflow tests
+    ├── test_db_sqlalchemy.py   ← ORM persistence tests
+    ├── test_pipeline.py
+    ├── test_policy.py
+    └── ...
 ```
 
 ---
 
-## 📊 Evaluation & Benchmark Results
+## 🗄️ Database Schema
 
-We evaluated the pretrained `unitary/toxic-bert` model against a classical ML baseline (**TF-IDF + Logistic Regression**) trained from scratch on a held-out test split of the Kaggle Jigsaw Toxic Comment dataset (`data/raw/jigsaw_test_sample.csv`).
-
-| Model / Classifier | Precision | Recall | F1-Score |
-| :--- | :---: | :---: | :---: |
-| **Classical ML Baseline (TF-IDF + Logistic Reg)** | 0.8800 | 0.7333 | 0.8000 |
-| **Pretrained Transformer (`unitary/toxic-bert`)** | **0.9375** | **0.9375** | **0.9375** |
-
-- **Takeaway**: The off-the-shelf pretrained transformer (`toxic-bert`) significantly outperforms the classical TF-IDF baseline in both recall and F1-score without requiring custom training.
-
----
-
-## ⚖️ Business Logic: Severity $\rightarrow$ Action Rules
-
-| Severity Level | Automated System Action | Admin Authority Options |
-| :--- | :--- | :--- |
-| **none** | Logged as clean message | Admin can manually flag if reported by user |
-| **mild** | Soft in-app warning shown to sender | Admin can escalate severity or dismiss flag |
-| **moderate** | Mute sender in thread + flag for admin review | Admin can force block user, unblock, or adjust severity |
-| **severe** | Escalate immediately + block message | Admin can unblock message, override verdict, or confirm permanent block |
+| Table | Purpose |
+|---|---|
+| `users` | Identity registry (`user_id`, `username`, `status`) |
+| `messages` | Every sent message with toxicity/emotion scores |
+| `verdicts` | LLM verdict per flagged message (category, severity, RAG context JSON) |
+| `actions` | Immutable audit log of all system/admin actions |
+| `restricted_users` | Active block/mute records with `mute_expires_at` for 30-min auto-expiry |
+| `appeals` | User-submitted appeal records with admin resolution |
 
 ---
 
-## ⚠️ Known Limitations & Privacy Considerations
+## ⚖️ Legal Notice
 
-1. **Demographic & Dialect Bias in Public Toxicity Models**:
-   - Toxicity classifiers trained on public datasets like Kaggle Jigsaw have documented false-positive bias against certain dialects, colloquial slang, and reclaimed language. The secondary LLM reasoning agent and RAG context retrieval step serve specifically to mitigate this single-classifier bias.
-2. **Data Retention & Privacy Compliance**:
-   - The current SQLite implementation logs messages and verdicts locally for auditability. A production deployment must implement automatic data retention/deletion schedules (e.g. 30-day auto-purge) to comply with GDPR and local privacy regulations.
-3. **Legal Information Disclaimer**:
-   - All generated user reports carry an explicit notice stating that citations from **Pakistan PECA 2016** or platform guidelines are provided for general educational and policy awareness purposes only, and do not constitute formal legal advice.
+This system references Pakistan's **Prevention of Electronic Crimes Act (PECA) 2016** and **FIA Cyber Crime Wing** policy corpus for educational and research purposes only. It is not a substitute for professional legal advice.
+
+---
+
+## 📝 License
+
+MIT License — See `LICENSE` file for details.
