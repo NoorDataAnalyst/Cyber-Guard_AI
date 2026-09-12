@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Environment & Keys
+.env
+.env.*
+!.env.example
+
+# Data & Database
+data/raw/*
+!data/raw/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Models & FAISS index cache
+*.faiss
+*.pkl
+models/
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# Streamlit
+.streamlit/
+
+
+# Local workspace / IDE
+.gemini/
+.vscode/
+.idea/

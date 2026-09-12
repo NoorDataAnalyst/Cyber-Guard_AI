@@ -1,0 +1,26 @@
+text,category,severity,note
+"You are completely useless, an idiot, and nobody wants you here.",direct,severe,Explicit direct attack with abusive insults.
+"Shut up you loser, stop speaking in this group.",direct,moderate,Direct verbal hostility and exclusion.
+"Oh wow, look who decided to grace us with their presence, the genius of the century.",sarcastic,mild,Sarcastic insult targeting intelligence and participation.
+"Great job ruining the whole presentation for everyone, as expected.",sarcastic,moderate,Sarcastic blame and targeted public humiliation.
+"It must be so nice to never have to work hard like the rest of us.",indirect,mild,Indirect passive-aggressive criticism designed to isolate.
+"Some people in this chat really need to look in the mirror before giving advice.",indirect,mild,Indirect targeted mockery without naming explicitly.
+"Go back to your country, people of your religion do not belong on this platform.",identity_attack,severe,Hate speech and harassment targeting national origin and religion.
+"Women shouldn't be commenting on technical topics anyway.",identity_attack,moderate,Gender-based identity harassment.
+"I am going to find where you live and make sure you pay for what you said.",threat,severe,Explicit physical harm and intimidation threat.
+"Watch your back when you leave your house tomorrow.",threat,severe,Direct physical threat targeting personal safety.
+"I disagree with your analysis, but let's review the dataset metrics together.",not_bullying,none,Legitimate civil disagreement in a work context.
+"That joke was so bad it made me laugh!",not_bullying,none,Playful friendly banter without malicious intent.
+"Can you please send the updated project report by 5 PM?",not_bullying,none,Standard administrative request.
+"You're a total fraud, delete your account and never post again.",direct,severe,Aggressive direct harassment demanding platform removal.
+"Isn't it amazing how you always manage to mess up the simplest instructions?",sarcastic,moderate,Sarcastic degradation of competence.
+"We all know who ruined the game for us today.",indirect,mild,Indirect targeted scapegoating.
+"Your kind of people are always lazy and dishonest.",identity_attack,severe,Group-based identity slur and stereotyping.
+"If you edit this page one more time, bad things will happen to you.",threat,severe,Coercive threat of physical/digital retaliation.
+"Please stop contacting me, I am blocking your account.",not_bullying,none,Self-boundary enforcement message.
+"Wow, you are so lucky to win that award!",not_bullying,none,Genuine compliment.
+"Nice try, but everyone knows you didn't write a single line of that code.",sarcastic,moderate,Public undermining of authorship and effort.
+"Nobody asked for your opinion, keep your mouth shut.",direct,moderate,Direct aggressive silencer.
+"People like you shouldn't be allowed to vote or speak here.",identity_attack,severe,Discriminatory exclusion targeting identity.
+"I will leak your private photos if you don't do what I say.",threat,severe,Blackmail and severe cyber-extortion threat.
+"I apologize for the delay in responding to your email.",not_bullying,none,Civil communication.
