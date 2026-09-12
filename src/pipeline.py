@@ -1,7 +1,7 @@
 """
 Pipeline Orchestration Module.
 Executes locked sequential architecture (Steps 2–8) end-to-end for every incoming chat message
-or manual user report.
+or manual user report, with pipeline-level user restriction enforcement.
 """
 
 import logging
@@ -13,8 +13,8 @@ from src.toxicity_classifier import ToxicityClassifier
 from src.emotion_classifier import EmotionClassifier
 from src.retrieval import RAGRetrievalManager
 from src.llm_agent import LLMReasoningAgent
-from src.policy import map_severity_to_action
-from src.db import save_message, save_verdict, get_conversation_thread
+from src.policy import map_severity_to_action, enforce_user_policy_action
+from src.db import save_message, save_verdict, get_conversation_thread, get_or_create_user, get_user_status
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class CyberbullyingPipeline:
     """
     Monolithic end-to-end pipeline manager orchestrating Signal Layer, FAISS RAG,
-    LLM Reasoning Agent, Policy Engine, and SQLite DB Persistence.
+    LLM Reasoning Agent, Policy Engine, DB Persistence, and User Restrictions.
     """
 
     def __init__(self):
@@ -42,6 +42,7 @@ class CyberbullyingPipeline:
     ) -> Dict[str, Any]:
         """
         Executes end-to-end processing pipeline for a single message.
+        Enforces user restrictions (blocked/muted) BEFORE message processing.
 
         Args:
             sender: Username of message author.
@@ -55,6 +56,26 @@ class CyberbullyingPipeline:
         cleaned_msg = clean_text(text)
         if not cleaned_msg:
             return {"status": "empty", "is_flagged": False, "action_taken": "no action"}
+
+        # Resolve or create user identity
+        user_info = get_or_create_user(sender)
+        user_id = user_info["user_id"]
+
+        # Pipeline-Level Restriction Check (Correction #2)
+        status_info = get_user_status(user_id)
+        if status_info["status"] in ["blocked", "muted"]:
+            logger.warning(f"Message rejected: user '{sender}' (id={user_id}) is currently {status_info['status']}.")
+            return {
+                "status": "restricted",
+                "user_id": user_id,
+                "username": user_info["username"],
+                "user_status": status_info["status"],
+                "reason": status_info["reason"],
+                "mute_expires_at": status_info.get("mute_expires_at"),
+                "is_flagged": True,
+                "action_taken": f"rejected (user is {status_info['status']})",
+                "explanation": f"Message processing rejected because user account is currently {status_info['status']}."
+            }
 
         # Step 2: SIGNAL LAYER (Fast, pretrained inference, < 1 sec)
         toxicity_info = self.toxicity_classifier.predict(cleaned_msg)
@@ -71,7 +92,7 @@ class CyberbullyingPipeline:
         is_flagged = is_signal_flagged or force_flag or (report_type == "manual_user_report")
 
         # Save base message to DB
-        msg_id = save_message(sender=sender, text=cleaned_msg, is_flagged=is_flagged, report_type=report_type)
+        msg_id = save_message(sender=user_info["username"], text=cleaned_msg, is_flagged=is_flagged, report_type=report_type, user_id=user_id)
 
         if not is_flagged:
             # Clean message: log as clean and stop here
@@ -91,6 +112,7 @@ class CyberbullyingPipeline:
             )
             return {
                 "message_id": msg_id,
+                "user_id": user_id,
                 "text": cleaned_msg,
                 "is_flagged": False,
                 "toxicity_score": tox_score,
@@ -104,7 +126,6 @@ class CyberbullyingPipeline:
 
         # Step 4: RETRIEVAL LAYER (FAISS - context history & precedent examples)
         recent_thread = get_conversation_thread(limit=CONTEXT_HISTORY_N + 1)
-        # Exclude current message from history if present
         context_history = [m for m in recent_thread if m.get("id") != msg_id]
         retrieved_context = self.rag_manager.retrieve_context(context_history, n_recent=CONTEXT_HISTORY_N)
         retrieved_examples = self.rag_manager.retrieve_similar_examples(cleaned_msg)
@@ -122,13 +143,22 @@ class CyberbullyingPipeline:
         severity = verdict.get("severity", "none")
         action_taken, notification_target = map_severity_to_action(severity)
 
+        # Apply user account restrictions if moderate or severe
+        if severity in ["moderate", "severe"]:
+            enforce_user_policy_action(
+                user_id=user_id,
+                message_id=msg_id,
+                severity=severity,
+                reason=verdict.get("explanation", "Violation of community standards"),
+                taken_by="system"
+            )
+
         # Step 7: USER-FACING REPORT GENERATION (grounded in policy corpus)
         retrieved_policy = []
         user_report = ""
         category = verdict.get("category", "not_bullying")
 
         if action_taken != "no action" and severity != "none":
-            # Step 4c: Retrieve policy snippet using verdict category key
             retrieved_policy = self.rag_manager.retrieve_policy_snippets(category)
             user_report = self.llm_agent.generate_user_facing_report(verdict, retrieved_policy, action_taken)
 
@@ -148,6 +178,7 @@ class CyberbullyingPipeline:
         return {
             "message_id": msg_id,
             "verdict_id": verdict_id,
+            "user_id": user_id,
             "text": cleaned_msg,
             "is_flagged": True,
             "report_type": report_type,

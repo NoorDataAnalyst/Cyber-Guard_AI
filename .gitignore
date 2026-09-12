@@ -9,10 +9,9 @@ venv/
 ENV/
 .venv
 
-# Environment & Keys
+# Environment & Secrets
 .env
-.env.*
-!.env.example
+.streamlit/secrets.toml
 
 # Data & Database
 data/raw/*
@@ -28,12 +27,3 @@ models/
 
 # Jupyter Notebooks
 .ipynb_checkpoints
-
-# Streamlit
-.streamlit/
-
-
-# Local workspace / IDE
-.gemini/
-.vscode/
-.idea/

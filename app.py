@@ -1,264 +1,204 @@
 """
-Streamlit Web Application Entry Point (Thin Monolithic UI).
-Provides two primary views:
-1. Live Feed view (simulated chat interface with visual severity badges, manual user report buttons, and expandable reasoning drawers)
-2. Admin Dashboard view (comprehensive audit table, RAG inspection drawers, and Admin manual override authority controls)
+CyberGuard AI — Streamlit Application Entry Point (Thin Router).
+
+All rendering logic lives in src/ui/* modules.
+This file only configures the page, applies global styles, and routes tabs.
 """
 
 import streamlit as st
-import pandas as pd
-import json
-from datetime import datetime
+from streamlit_option_menu import option_menu
 
-from src.config import SEVERITY_LEVELS, CATEGORIES, LEGAL_DISCLAIMER
-from src.pipeline import CyberbullyingPipeline
-from src.db import (
-    get_conversation_thread,
-    get_flagged_verdicts,
-    update_admin_status,
-    save_message,
-)
-from src.policy import apply_admin_override
-
-# Page Config
+# ── Page Config (MUST be first Streamlit call) ─────────────────────────────
 st.set_page_config(
-    page_title="Cyberbullying Detection & RAG Governance",
+    page_title="CyberGuard AI | Cyberbullying Detection & RAG Governance",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# Custom Styling (Vanilla CSS for Glassmorphism & High-Contrast Severity Badges)
+# ── Global Stylesheet ──────────────────────────────────────────────────────
 st.markdown("""
     <style>
-    .main {
-        background-color: #0e1117;
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
+
+    /* Dark canvas */
+    .stApp {
+        background: #0b0d14;
+    }
+    .main > .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+        max-width: 1280px;
+    }
+
+    /* Remove default Streamlit header padding */
     .stAppHeader {
-        background: rgba(14, 17, 23, 0.8);
+        background: rgba(11, 13, 20, 0.9);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid #1e2233;
     }
-    .badge-none {
-        background-color: #2e7d32; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem;
+
+    /* Option menu navbar styling */
+    .nav-link {
+        font-size: 0.88rem !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+        padding: 8px 14px !important;
+        transition: background 0.2s ease !important;
     }
-    .badge-mild {
-        background-color: #f57f17; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem;
+    .nav-link-selected {
+        background: linear-gradient(135deg, #5865f2, #7c3aed) !important;
+        box-shadow: 0 4px 15px rgba(88, 101, 242, 0.35) !important;
     }
-    .badge-moderate {
-        background-color: #e65100; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem;
-    }
-    .badge-severe {
-        background-color: #c62828; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem;
-    }
+
+    /* Global badge styles (shared across tabs) */
+    .badge-none     { background-color:#2e7d32; color:white; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.83rem; }
+    .badge-mild     { background-color:#f57f17; color:white; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.83rem; }
+    .badge-moderate { background-color:#e65100; color:white; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.83rem; }
+    .badge-severe   { background-color:#c62828; color:white; padding:3px 10px; border-radius:12px; font-weight:600; font-size:0.83rem; }
+
+    /* Card box */
     .card-box {
-        background: #1e222d; border-radius: 10px; padding: 18px; margin-bottom: 15px; border: 1px solid #2d3241;
+        background: #1e222d;
+        border-radius: 12px;
+        padding: 18px;
+        margin-bottom: 16px;
+        border: 1px solid #2d3241;
     }
     .legal-box {
-        background-color: #1a2332; border-left: 4px solid #0288d1; padding: 12px 15px; border-radius: 4px; font-size: 0.9rem; margin-top: 10px;
+        background-color: #1a2332;
+        border-left: 4px solid #0288d1;
+        padding: 12px 15px;
+        border-radius: 4px;
+        font-size: 0.9rem;
+        margin-top: 10px;
+    }
+    .restriction-banner {
+        background-color: #3e1212;
+        border: 1px solid #b71c1c;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        color: #ffcdd2;
+    }
+    .mute-banner {
+        background-color: #332606;
+        border: 1px solid #f57f17;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        color: #ffe0b2;
+    }
+
+    /* Streamlit widget overrides for dark theme harmony */
+    .stTextInput > div > div > input,
+    .stTextArea > div > div > textarea,
+    .stSelectbox > div > div {
+        background-color: #1a1e2b !important;
+        border: 1px solid #2d3241 !important;
+        color: #e8eaf6 !important;
+        border-radius: 8px !important;
+    }
+    .stButton > button {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        transition: all 0.2s ease !important;
+    }
+    .stButton > button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(88,101,242,0.3);
+    }
+
+    /* Chat message styling */
+    .stChatMessage {
+        background: #1e222d !important;
+        border: 1px solid #2d3241 !important;
+        border-radius: 12px !important;
+    }
+
+    /* Sidebar collapse button */
+    [data-testid="collapsedControl"] {
+        display: none;
     }
     </style>
 """, unsafe_allow_html=True)
 
 
-@st.cache_resource
-def get_pipeline():
-    """Cache pipeline instantiation to avoid reloading models on every rerender."""
-    return CyberbullyingPipeline()
+# ── Hero Header ────────────────────────────────────────────────────────────
+st.markdown("""
+    <div style="text-align:center; padding: 8px 0 24px 0;">
+        <div style="font-size:2.6rem; font-weight:900;
+                    background:linear-gradient(135deg,#5865f2,#eb4b8b,#f5a623);
+                    -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+                    letter-spacing:-1px; line-height:1.1;">
+            🛡️ CyberGuard AI
+        </div>
+        <div style="color:#6b7280; font-size:0.97rem; margin-top:8px; font-weight:500;">
+            Context-Aware Cyberbullying Detection with RAG Reasoning &amp; Policy Governance
+        </div>
+    </div>
+""", unsafe_allow_html=True)
 
 
-pipeline = get_pipeline()
-
-
-def render_severity_badge(severity: str) -> str:
-    sev = str(severity).lower()
-    if sev == "severe":
-        return '<span class="badge-severe">🔴 SEVERE</span>'
-    elif sev == "moderate":
-        return '<span class="badge-moderate">🟠 MODERATE</span>'
-    elif sev == "mild":
-        return '<span class="badge-mild">🟡 MILD</span>'
-    else:
-        return '<span class="badge-none">🟢 CLEAN</span>'
-
-
-# Sidebar Navigation & Settings
-st.sidebar.title("🛡️ CyberGuard AI")
-st.sidebar.caption("Context & Emotion-Aware RAG Cyberbullying System")
-
-view_mode = st.sidebar.radio(
-    "Select Interface View",
-    ["💬 Live Chat Feed", "📊 Admin Governance Dashboard"],
-    index=0
+# ── Top Navigation (option-menu) ───────────────────────────────────────────
+selected_tab = option_menu(
+    menu_title=None,
+    options=["Home", "Analytics", "Features", "Tech Stack", "Team", "About"],
+    icons=["house-fill", "bar-chart-fill", "lightning-charge-fill", "cpu-fill", "people-fill", "info-circle-fill"],
+    menu_icon="shield-fill",
+    default_index=0,
+    orientation="horizontal",
+    styles={
+        "container": {
+            "padding": "6px 12px",
+            "background-color": "#141720",
+            "border-radius": "14px",
+            "border": "1px solid #2d3241",
+            "margin-bottom": "24px",
+        },
+        "icon": {"color": "#8b9cf7", "font-size": "16px"},
+        "nav-link": {
+            "font-size": "0.88rem",
+            "font-weight": "600",
+            "color": "#9ea7c9",
+            "border-radius": "8px",
+            "--hover-color": "#1e222d",
+        },
+        "nav-link-selected": {
+            "background": "linear-gradient(135deg, #5865f2, #7c3aed)",
+            "color": "white",
+            "box-shadow": "0 4px 15px rgba(88,101,242,0.35)",
+        },
+    },
+    key="main_nav",
 )
 
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ⚙️ Pipeline Configuration")
-user_name = st.sidebar.text_input("Simulated User Name", value="User_Alpha")
-st.sidebar.info("Pretrained Models: toxic-bert & roberta-go_emotions\nVector Index: FAISS CPU\nLaw Corpus: PECA 2016 & FIA Pakistan")
 
-# ==============================================================================
-# VIEW 1: LIVE CHAT FEED
-# ==============================================================================
-if view_mode == "💬 Live Chat Feed":
-    st.title("💬 Live Chat Conversation Feed")
-    st.caption("Simulate real-time online messages. System automatically scans every message, and users can manually report suspicious content.")
+# ── Route to Tabs ─────────────────────────────────────────────────────────
+if selected_tab == "Home":
+    from src.ui.home import render_home_tab
+    render_home_tab()
 
-    # Display Chat Messages
-    thread_messages = get_conversation_thread(limit=50)
+elif selected_tab == "Analytics":
+    from src.ui.stats import render_stats_tab
+    render_stats_tab()
 
-    for msg in thread_messages:
-        sender = msg.get("sender", "Anonymous")
-        is_user = (sender == user_name)
-        avatar = "👤" if is_user else "💬"
-        
-        with st.chat_message(sender, avatar=avatar):
-            is_flagged = bool(msg.get("is_flagged", False))
-            severity = msg.get("severity") or "none"
-            action_taken = msg.get("action_taken") or "no action"
+elif selected_tab == "Features":
+    from src.ui.features import render_features_tab
+    render_features_tab()
 
-            col_msg, col_badge = st.columns([0.8, 0.2])
-            with col_msg:
-                st.markdown(f"**{sender}**: {msg['text']}")
-            with col_badge:
-                if is_flagged:
-                    st.markdown(render_severity_badge(severity), unsafe_allow_html=True)
+elif selected_tab == "Tech Stack":
+    from src.ui.tech_stack import render_tech_stack_tab
+    render_tech_stack_tab()
 
-            # Manual User Report Action Button
-            col_rep, col_exp = st.columns([0.2, 0.8])
-            with col_rep:
-                if not is_flagged:
-                    if st.button("🚩 Report", key=f"rep_{msg['id']}"):
-                        with st.spinner("Analyzing manual user report via RAG + LLM agent..."):
-                            pipeline.process_message(
-                                sender=sender,
-                                text=msg['text'],
-                                report_type="manual_user_report",
-                                force_flag=True
-                            )
-                        st.success("Message reported to Admin review queue.")
-                        st.rerun()
+elif selected_tab == "Team":
+    from src.ui.team import render_team_tab
+    render_team_tab()
 
-            # Expandable Reasoning & User Report Drawer for Flagged Items
-            if is_flagged:
-                with st.expander(f"🔍 Why was this flagged? (Action: {str(action_taken).title()})"):
-                    st.markdown(f"**Category**: `{msg.get('category') or 'N/A'}`")
-                    st.markdown(f"**Action Enforced**: `{action_taken}`")
-                    
-                    if msg.get("explanation"):
-                        st.markdown(f"**Internal Admin Explanation**:\n_{msg['explanation']}_")
-
-                    if msg.get("user_report"):
-                        st.markdown("<div class='legal-box'>", unsafe_allow_html=True)
-                        st.markdown(f"**User-Facing Policy Notice**:\n\n{msg['user_report']}")
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-    # Chat Input Box
-    new_message = st.chat_input("Type a message to post into the conversation...")
-    if new_message:
-        with st.spinner("Running Signal Layer (Toxicity & Emotion) and RAG Reasoning..."):
-            result = pipeline.process_message(sender=user_name, text=new_message, report_type="automatic")
-        st.rerun()
-
-# ==============================================================================
-# VIEW 2: ADMIN GOVERNANCE DASHBOARD
-# ==============================================================================
-else:
-    st.title("📊 Admin Governance & Audit Dashboard")
-    st.caption("Inspect all flagged cyberbullying items, inspect RAG context & precedent matches, and exercise Admin manual override authority.")
-
-    # Filter Controls
-    col_f1, col_f2 = st.columns(2)
-    with col_f1:
-        sev_filter = st.selectbox("Filter by Severity", ["all"] + SEVERITY_LEVELS)
-    with col_f2:
-        cat_filter = st.selectbox("Filter by Category", ["all"] + CATEGORIES)
-
-    flagged_items = get_flagged_verdicts(severity_filter=sev_filter, category_filter=cat_filter)
-
-    if not flagged_items:
-        st.info("No flagged messages found matching selected filters.")
-    else:
-        st.write(f"Total Flagged Items: **{len(flagged_items)}**")
-
-        for item in flagged_items:
-            verdict_id = item["verdict_id"]
-            severity = item.get("severity") or "none"
-            category = item.get("category") or "N/A"
-            action_taken = item.get("action_taken") or "no action"
-            admin_status = item.get("admin_status") or "pending"
-
-            with st.container():
-                st.markdown("<div class='card-box'>", unsafe_allow_html=True)
-                c1, c2, c3, c4 = st.columns([0.15, 0.45, 0.20, 0.20])
-
-                with c1:
-                    st.markdown(render_severity_badge(severity), unsafe_allow_html=True)
-                    st.caption(f"Status: `{admin_status}`")
-
-                with c2:
-                    st.markdown(f"**{item.get('sender', 'User')}**: {item['message_text']}")
-                    st.caption(f"Timestamp: {item.get('timestamp', '')[:19]} | Mode: `{item.get('report_type', 'automatic')}`")
-
-                with c3:
-                    st.markdown(f"Category: **{category}**")
-                    st.markdown(f"Toxicity Score: **{item.get('toxicity_score', 0.0):.2f}**")
-                    st.markdown(f"Emotion: **{item.get('top_emotion', 'neutral')}**")
-
-                with c4:
-                    st.markdown(f"Action: **{action_taken}**")
-
-                # Full Inspection Accordion
-                with st.expander(f"🔎 Detailed Audit Drawer & RAG Inspection (ID #{verdict_id})"):
-                    t1, t2, t3, t4 = st.tabs(["🤖 LLM Verdict", "📚 RAG Precedents", "📜 Law & Policy", "🛠️ Admin Override"])
-
-                    with t1:
-                        st.markdown(f"**Is True Positive**: `{item.get('is_true_positive')}`")
-                        st.markdown(f"**LLM Confidence**: `{item.get('confidence', 0.0):.2f}`")
-                        st.markdown(f"**Internal Admin Explanation**:\n\n_{item.get('explanation')}_")
-
-                    with t2:
-                        st.markdown("#### Retrieved Thread History Context")
-                        st.json(item.get("context_retrieved", []))
-                        
-                        st.markdown("#### Retrieved Top Precedent Examples")
-                        for idx, ex in enumerate(item.get("examples_retrieved", []), 1):
-                            st.markdown(f"**{idx}. Example**: \"{ex.get('text')}\" | Category: `{ex.get('category')}` | Sim Score: `{ex.get('similarity_score', 0.0):.2f}`")
-
-                    with t3:
-                        st.markdown("#### Retrieved Policy & Legal Framework Snippets")
-                        for idx, pol in enumerate(item.get("policy_retrieved", []), 1):
-                            st.markdown(f"**Source**: {pol.get('source')}")
-                            st.markdown(f"> \"{pol.get('snippet')}\"")
-                        
-                        if item.get("user_report"):
-                            st.markdown("#### Generated User-Facing Report")
-                            st.text_area("Report Content", value=item["user_report"], height=160, key=f"rep_txt_{verdict_id}")
-
-                    with t4:
-                        st.markdown("#### Admin Manual Override Authority Controls")
-                        st.caption("As an authorized admin moderator, you can override system actions, manually block/unblock, or dismiss false positives.")
-
-                        note_input = st.text_input("Admin Reason / Note", value=item.get("admin_note", ""), key=f"note_{verdict_id}")
-
-                        b_col1, b_col2, b_col3 = st.columns(3)
-                        with b_col1:
-                            if st.button("🚫 Force Block User", key=f"btn_blk_{verdict_id}"):
-                                updated = apply_admin_override(item, "block_message", admin_note=note_input)
-                                update_admin_status(verdict_id, updated["admin_status"], updated["action_taken"], note_input)
-                                st.success("User/Message manually blocked by Admin.")
-                                st.rerun()
-
-                        with b_col2:
-                            if st.button("✅ Force Unblock User", key=f"btn_unblk_{verdict_id}"):
-                                updated = apply_admin_override(item, "unblock_message", admin_note=note_input)
-                                update_admin_status(verdict_id, updated["admin_status"], updated["action_taken"], note_input)
-                                st.success("User/Message manually unblocked by Admin.")
-                                st.rerun()
-
-                        with b_col3:
-                            if st.button("🗑️ Dismiss Flag (Clean)", key=f"btn_dsm_{verdict_id}"):
-                                updated = apply_admin_override(item, "dismiss_flag", admin_note=note_input)
-                                update_admin_status(verdict_id, updated["admin_status"], updated["action_taken"], note_input)
-                                st.success("Flag dismissed as clean.")
-                                st.rerun()
-
-                st.markdown("</div>", unsafe_allow_html=True)
+elif selected_tab == "About":
+    from src.ui.about import render_about_tab
+    render_about_tab()

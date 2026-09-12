@@ -4,8 +4,9 @@ Provides deterministic, explicit rule-based severity-to-action mapping per Secti
 and handles Admin manual override authorities (Block, Unblock, Dismiss, Override Verdict).
 """
 
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from src.config import SEVERITY_ACTION_MAP, SEVERITY_LEVELS
+from src.db import set_restriction, log_action
 
 
 def map_severity_to_action(severity: str) -> Tuple[str, str]:
@@ -33,6 +34,35 @@ def map_severity_to_action(severity: str) -> Tuple[str, str]:
         return ("no action", "none")
 
 
+def enforce_user_policy_action(
+    user_id: Optional[int],
+    message_id: Optional[int],
+    severity: str,
+    reason: str,
+    taken_by: str = "system"
+) -> Optional[Dict[str, Any]]:
+    """
+    Applies user-level restrictions (30-minute mute for moderate, severe block for severe).
+    """
+    if not user_id:
+        return None
+
+    sev_clean = str(severity).strip().lower()
+
+    if sev_clean == "moderate":
+        # Mute user for 30 minutes
+        res = set_restriction(user_id, status="muted", reason=reason, severity="moderate", blocked_by=taken_by, mute_minutes=30)
+        log_action(message_id=message_id, user_id=user_id, action_type="mute", taken_by=taken_by, admin_note=reason)
+        return res
+    elif sev_clean == "severe":
+        # Full account block (requires appeal)
+        res = set_restriction(user_id, status="blocked", reason=reason, severity="severe", blocked_by=taken_by)
+        log_action(message_id=message_id, user_id=user_id, action_type="block", taken_by=taken_by, admin_note=reason)
+        return res
+
+    return None
+
+
 def apply_admin_override(
     current_record: Dict[str, Any],
     override_action: str,
@@ -40,35 +70,31 @@ def apply_admin_override(
 ) -> Dict[str, Any]:
     """
     Applies Admin manual authority override to a flagged message record.
-
-    Supported override_action choices:
-    - "block_message": Forces immediate message block and sender restriction.
-    - "unblock_message": Restores message and removes sender mute/block.
-    - "dismiss_flag": Marks message as false positive clean.
-    - "override_severity_mild" / "override_severity_moderate" / "override_severity_severe"
-
-    Args:
-        current_record: The database record dict for the flagged message.
-        override_action: The admin action command string.
-        admin_note: Optional explanation note from admin.
-
-    Returns:
-        Updated record dict with new action, admin status, and timestamp.
     """
     record = dict(current_record)
+    user_id = record.get("user_id")
 
     if override_action == "block_message":
         record["action_taken"] = "block message (admin forced)"
         record["severity"] = "severe"
         record["admin_status"] = "manually_blocked"
+        if user_id:
+            set_restriction(user_id, status="blocked", reason=admin_note or "Admin forced block", severity="severe", blocked_by="admin")
+
     elif override_action == "unblock_message":
         record["action_taken"] = "unblocked (admin override)"
         record["admin_status"] = "manually_unblocked"
+        if user_id:
+            set_restriction(user_id, status="unblocked", reason=admin_note or "Admin unblocked", severity="none", blocked_by="admin")
+
     elif override_action == "dismiss_flag":
         record["action_taken"] = "dismissed (false positive)"
         record["severity"] = "none"
         record["is_true_positive"] = False
         record["admin_status"] = "dismissed"
+        if user_id:
+            set_restriction(user_id, status="unblocked", reason=admin_note or "Flag dismissed", severity="none", blocked_by="admin")
+
     elif override_action.startswith("override_severity_"):
         new_sev = override_action.replace("override_severity_", "")
         if new_sev in SEVERITY_LEVELS:
@@ -76,6 +102,8 @@ def apply_admin_override(
             action, _ = map_severity_to_action(new_sev)
             record["action_taken"] = f"{action} (admin severity override)"
             record["admin_status"] = f"severity_overridden_{new_sev}"
+            if user_id and new_sev in ["moderate", "severe"]:
+                enforce_user_policy_action(user_id, record.get("message_id"), new_sev, admin_note or f"Admin set severity to {new_sev}", taken_by="admin")
 
     record["admin_note"] = admin_note
     return record
