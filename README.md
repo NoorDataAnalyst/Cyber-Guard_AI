@@ -222,4 +222,4 @@ This system references Pakistan's **Prevention of Electronic Crimes Act (PECA) 2
 
 ## 📝 License
 
-MIT License — See `LICENSE` file for details.
+MIT License — See [LICENSE](LICENSE) file for details.
