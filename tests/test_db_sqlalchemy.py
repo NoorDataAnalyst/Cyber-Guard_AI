@@ -168,6 +168,18 @@ class TestSaveMessage:
         assert len(thread) >= 1
         assert any(m["text"] == "test message content" for m in thread)
 
+    def test_get_conversation_thread_no_duplicate_messages_on_multiple_verdicts(self):
+        msg_id = save_message("oscar", "duplicate test message", is_flagged=True)
+        # Add multiple verdicts for the same message_id
+        save_verdict(msg_id, {"is_true_positive": True, "category": "harassment", "severity": "mild"}, 0.6, "anger", "soft warning", "User report 1")
+        save_verdict(msg_id, {"is_true_positive": True, "category": "cyberbullying", "severity": "severe"}, 0.9, "anger", "block message", "User report 2")
+
+        thread = get_conversation_thread(limit=10)
+        matching_messages = [m for m in thread if m["id"] == msg_id]
+        # Must return exactly 1 message entry with the latest verdict severity ('severe')
+        assert len(matching_messages) == 1
+        assert matching_messages[0]["severity"] == "severe"
+
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 

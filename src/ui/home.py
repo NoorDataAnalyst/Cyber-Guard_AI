@@ -50,7 +50,7 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
     """
     thread_messages = get_conversation_thread(limit=50)
 
-    for msg in thread_messages:
+    for idx, msg in enumerate(thread_messages):
         sender = msg.get("sender", "Anonymous")
         is_user = (sender == current_username)
         avatar = "👤" if is_user else "💬"
@@ -70,7 +70,7 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
             col_rep, col_exp = st.columns([0.2, 0.8])
             with col_rep:
                 if not is_flagged and not is_restricted:
-                    if st.button("🚩 Report", key=f"rep_{msg['id']}"):
+                    if st.button("🚩 Report", key=f"rep_{msg['id']}_{idx}"):
                         with st.spinner("Analyzing manual report..."):
                             pipeline.process_existing_message(
                                 message_id=msg['id'],

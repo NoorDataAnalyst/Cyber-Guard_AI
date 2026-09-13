@@ -694,20 +694,40 @@ def save_verdict(
 
 
 def get_conversation_thread(limit: int = 50) -> List[Dict[str, Any]]:
-    """Retrieves recent conversation messages joined with verdict details."""
+    """Retrieves recent conversation messages joined with verdict details without duplicate entries."""
     import json
     session = SessionLocal()
     try:
-        query = (
-            session.query(MessageModel, UserModel, VerdictModel)
-            .outerjoin(UserModel, MessageModel.user_id == UserModel.user_id)
-            .outerjoin(VerdictModel, MessageModel.message_id == VerdictModel.message_id)
+        messages = (
+            session.query(MessageModel)
             .order_by(MessageModel.message_id.desc())
             .limit(limit)
+            .all()
         )
-        rows = list(reversed(query.all()))
+        msg_ids = [m.message_id for m in messages]
+        user_ids = list({m.user_id for m in messages if m.user_id})
+
+        users_by_id = {}
+        if user_ids:
+            user_rows = session.query(UserModel).filter(UserModel.user_id.in_(user_ids)).all()
+            users_by_id = {u.user_id: u for u in user_rows}
+
+        verdicts_by_msg_id = {}
+        if msg_ids:
+            verdict_rows = (
+                session.query(VerdictModel)
+                .filter(VerdictModel.message_id.in_(msg_ids))
+                .order_by(VerdictModel.verdict_id.desc())
+                .all()
+            )
+            for v in verdict_rows:
+                if v.message_id not in verdicts_by_msg_id:
+                    verdicts_by_msg_id[v.message_id] = v
+
         results = []
-        for msg, user, verd in rows:
+        for msg in reversed(messages):
+            user = users_by_id.get(msg.user_id)
+            verd = verdicts_by_msg_id.get(msg.message_id)
             results.append({
                 "id": msg.message_id,
                 "timestamp": msg.timestamp,
