@@ -12,6 +12,8 @@ from src.config import (
     ANTHROPIC_API_KEY,
     GEMINI_API_KEY,
     CLAUDE_MODEL_NAME,
+    GEMINI_MODEL_NAME,
+    get_config_val,
     CATEGORIES,
     SEVERITY_LEVELS,
     LEGAL_DISCLAIMER,
@@ -27,22 +29,23 @@ class LLMReasoningAgent:
     Analyzes flagged messages using retrieved context, precedent examples, and signal layer scores.
     """
 
-    def __init__(self, api_key: str = ANTHROPIC_API_KEY):
-        self.api_key = api_key
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or ANTHROPIC_API_KEY or get_config_val("ANTHROPIC_API_KEY", "")
         self.client = None
         self._init_client()
 
     def _init_client(self) -> None:
-        if self.api_key and self.api_key != "your_anthropic_api_key_here":
+        key = self.api_key or get_config_val("ANTHROPIC_API_KEY", "")
+        if key and key not in ["your_anthropic_api_key_here", ""]:
             try:
                 import anthropic
-                self.client = anthropic.Anthropic(api_key=self.api_key)
+                self.client = anthropic.Anthropic(api_key=key)
                 logger.info("Anthropic Claude API client initialized.")
             except Exception as e:
                 logger.warning(f"Failed to initialize Anthropic client: {e}")
                 self.client = None
         else:
-            logger.info("No Anthropic API key found. System will use grounded LLM fallback reasoning agent.")
+            logger.info("No Anthropic API key found. System will check Gemini API fallback or grounded rule engine.")
 
     def evaluate_flagged_message(
         self,
@@ -95,39 +98,94 @@ class LLMReasoningAgent:
             "Provide your verdict now in strict JSON."
         )
 
+        # 1. Primary Attempt: Anthropic Claude API
+        if self.client is None:
+            self._init_client()
+
         if self.client is not None:
             try:
-                response = self.client.messages.create(
-                    model=CLAUDE_MODEL_NAME,
-                    max_tokens=1000,
-                    temperature=0.0,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_content}]
-                )
+                try:
+                    response = self.client.messages.create(
+                        model=CLAUDE_MODEL_NAME,
+                        max_tokens=1000,
+                        system=system_prompt,
+                        messages=[{"role": "user", "content": user_content}]
+                    )
+                except TypeError as te:
+                    # In case API/mock expects explicit kwargs without unexpected args
+                    logger.warning(f"Claude API call TypeError retry: {te}")
+                    response = self.client.messages.create(
+                        model=CLAUDE_MODEL_NAME,
+                        max_tokens=1000,
+                        messages=[{"role": "user", "content": f"{system_prompt}\n\n{user_content}"}]
+                    )
+
                 raw_text = response.content[0].text.strip()
                 verdict = self._parse_and_validate_json(raw_text)
                 if verdict:
                     return verdict
             except Exception as e:
-                logger.error(f"Claude API invocation failed: {e}. Falling back to grounded rule engine.")
+                logger.error(f"Claude API invocation failed: {e}. Attempting Gemini API fallback...")
 
-        # Fallback Gemini API if configured
-        if GEMINI_API_KEY and GEMINI_API_KEY != "your_gemini_api_key_here":
+        # 2. Secondary Fallback Attempt: Google Gemini API
+        gemini_key = get_config_val("GEMINI_API_KEY", "") or get_config_val("GOOGLE_API_KEY", "") or GEMINI_API_KEY
+        if gemini_key and gemini_key not in ["your_gemini_api_key_here", "your_google_api_key_here", ""]:
+            # Try new google.genai SDK first
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=GEMINI_API_KEY)
+                from google import genai
+                g_client = genai.Client(api_key=gemini_key)
+                models_to_try = [GEMINI_MODEL_NAME, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+                seen_models = set()
+                for model_name in models_to_try:
+                    if not model_name or model_name in seen_models:
+                        continue
+                    seen_models.add(model_name)
+                    try:
+                        g_resp = g_client.models.generate_content(
+                            model=model_name,
+                            contents=f"{system_prompt}\n\n{user_content}"
+                        )
+                        if g_resp and hasattr(g_resp, "text") and g_resp.text:
+                            verdict = self._parse_and_validate_json(g_resp.text.strip())
+                            if verdict:
+                                logger.info(f"Gemini API fallback (google.genai) succeeded with model '{model_name}'.")
+                                return verdict
+                    except Exception as e_m:
+                        logger.warning(f"Gemini (google.genai) model '{model_name}' failed: {e_m}")
+                        continue
+            except ImportError:
+                # Fallback to legacy google.generativeai if google.genai is not installed
                 try:
-                    g_model = genai.GenerativeModel("gemini-2.5-flash")
-                except Exception:
-                    g_model = genai.GenerativeModel("gemini-flash-latest")
-                g_resp = g_model.generate_content(f"{system_prompt}\n\n{user_content}")
-                verdict = self._parse_and_validate_json(g_resp.text.strip())
-                if verdict:
-                    return verdict
-            except Exception as e:
-                logger.error(f"Gemini API fallback invocation failed: {e}")
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=FutureWarning)
+                        import google.generativeai as legacy_genai
+                    legacy_genai.configure(api_key=gemini_key)
 
-        # High-Quality Grounded Fallback Reasoning Engine
+                    models_to_try = [GEMINI_MODEL_NAME, "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+                    seen_models = set()
+                    for model_name in models_to_try:
+                        if not model_name or model_name in seen_models:
+                            continue
+                        seen_models.add(model_name)
+                        try:
+                            g_model = legacy_genai.GenerativeModel(model_name)
+                            g_resp = g_model.generate_content(f"{system_prompt}\n\n{user_content}")
+                            if g_resp and hasattr(g_resp, "text") and g_resp.text:
+                                verdict = self._parse_and_validate_json(g_resp.text.strip())
+                                if verdict:
+                                    logger.info(f"Gemini API fallback (legacy) succeeded with model '{model_name}'.")
+                                    return verdict
+                        except Exception as e_m:
+                            logger.warning(f"Gemini legacy model '{model_name}' failed: {e_m}")
+                            continue
+                except Exception as e_legacy:
+                    logger.error(f"Legacy Gemini API fallback failed: {e_legacy}")
+            except Exception as e:
+                logger.error(f"Gemini API fallback failed: {e}")
+
+        # 3. Grounded Rule Engine Fallback (when all APIs are unavailable or offline)
+        logger.info("Using grounded rule engine fallback verdict generator.")
         return self._generate_fallback_verdict(message_text, context_history, precedent_examples, toxicity_info, emotion_info)
 
     def generate_user_facing_report(
