@@ -353,7 +353,7 @@ class CyberbullyingPipeline:
             "verdict_id": verdict_id,
             "user_id": user_id,
             "text": cleaned_msg,
-            "is_flagged": True,
+            "is_flagged": bool(verdict.get("is_true_positive", False)),
             "report_type": report_type,
             "toxicity_score": tox_score,
             "top_emotion": top_emotion,

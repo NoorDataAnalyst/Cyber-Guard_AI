@@ -134,7 +134,7 @@ class LLMReasoningAgent:
             try:
                 from google import genai
                 g_client = genai.Client(api_key=gemini_key)
-                models_to_try = [GEMINI_MODEL_NAME, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+                models_to_try = [GEMINI_MODEL_NAME, "gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
                 seen_models = set()
                 for model_name in models_to_try:
                     if not model_name or model_name in seen_models:
@@ -162,7 +162,7 @@ class LLMReasoningAgent:
                         import google.generativeai as legacy_genai
                     legacy_genai.configure(api_key=gemini_key)
 
-                    models_to_try = [GEMINI_MODEL_NAME, "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
+                    models_to_try = [GEMINI_MODEL_NAME, "gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"]
                     seen_models = set()
                     for model_name in models_to_try:
                         if not model_name or model_name in seen_models:

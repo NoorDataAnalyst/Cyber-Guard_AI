@@ -58,7 +58,7 @@ RAG_TOP_K_POLICY = 2        # Top-k policy snippets from legal/policy corpus
 ANTHROPIC_API_KEY = get_config_val("ANTHROPIC_API_KEY", "")
 GEMINI_API_KEY = get_config_val("GEMINI_API_KEY", "") or get_config_val("GOOGLE_API_KEY", "")
 CLAUDE_MODEL_NAME = get_config_val("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-20241022")
-GEMINI_MODEL_NAME = get_config_val("GEMINI_MODEL_NAME", "gemini-1.5-flash")
+GEMINI_MODEL_NAME = get_config_val("GEMINI_MODEL_NAME", "gemini-3.6-flash")
 
 # Default Admin Credentials (Configurable via Environment Variables or Streamlit Secrets)
 DEFAULT_ADMIN_EMAIL = get_config_val("ADMIN_EMAIL")

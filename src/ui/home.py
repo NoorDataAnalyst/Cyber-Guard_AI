@@ -59,6 +59,7 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
             is_flagged = bool(msg.get("is_flagged", False))
             severity = msg.get("severity") or "none"
             action_taken = msg.get("action_taken") or "no action"
+            is_reported_or_scanned = bool(msg.get("is_reported") or msg.get("has_verdict"))
 
             col_msg, col_badge = st.columns([0.8, 0.2])
             with col_msg:
@@ -66,17 +67,22 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
             with col_badge:
                 if is_flagged:
                     st.markdown(render_severity_badge(severity), unsafe_allow_html=True)
+                elif is_reported_or_scanned:
+                    st.markdown(render_severity_badge("none"), unsafe_allow_html=True)
 
             col_rep, col_exp = st.columns([0.2, 0.8])
             with col_rep:
-                if not is_flagged and not is_restricted:
+                if not is_flagged and not is_restricted and not is_reported_or_scanned:
                     if st.button("🚩 Report", key=f"rep_{msg['id']}_{idx}"):
                         with st.spinner("Analyzing manual report..."):
-                            pipeline.process_existing_message(
+                            res = pipeline.process_existing_message(
                                 message_id=msg['id'],
                                 report_type="manual_user_report"
                             )
-                        st.success("Reported to Admin queue.")
+                        if res.get("is_flagged"):
+                            st.success("Reported to Admin queue.")
+                        else:
+                            st.info("Report analyzed: Content verified clean.")
                         st.rerun()
 
             if is_flagged:

@@ -744,6 +744,8 @@ def get_conversation_thread(limit: int = 50) -> List[Dict[str, Any]]:
                 ),
                 "user_report": verd.user_facing_report if verd else "",
                 "explanation": verd.internal_explanation if verd else "",
+                "has_verdict": verd is not None,
+                "is_reported": msg.source == "manual_user_report" or (verd is not None),
             })
         return results
     finally:
