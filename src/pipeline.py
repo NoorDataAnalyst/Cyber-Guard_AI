@@ -14,7 +14,16 @@ from src.emotion_classifier import EmotionClassifier
 from src.retrieval import RAGRetrievalManager
 from src.llm_agent import LLMReasoningAgent
 from src.policy import map_severity_to_action, enforce_user_policy_action
-from src.db import save_message, save_verdict, get_conversation_thread, get_or_create_user, get_user_status
+from src.db import (
+    save_message,
+    save_verdict,
+    get_conversation_thread,
+    get_or_create_user,
+    get_user_status,
+    flag_existing_message,
+    MessageModel,
+    SessionLocal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -245,3 +254,112 @@ class CyberbullyingPipeline:
                 "explanation": "Processed via safe fallback engine."
             }
 
+    def process_existing_message(
+        self,
+        message_id: int,
+        report_type: str = "manual_user_report"
+    ) -> Dict[str, Any]:
+        """
+        Processes an EXISTING message when a user clicks 'Report'.
+        Flags the existing message row and evaluates it without creating a duplicate message in the chat feed.
+        """
+        session = SessionLocal()
+        msg_obj = None
+        try:
+            msg_obj = session.query(MessageModel).filter(MessageModel.message_id == message_id).first()
+            if msg_obj:
+                msg_text = msg_obj.text
+                user_id = msg_obj.user_id
+            else:
+                return {"status": "not_found", "is_flagged": False, "action_taken": "no action"}
+        finally:
+            session.close()
+
+        flag_existing_message(message_id, report_type=report_type)
+
+        cleaned_msg = clean_text(msg_text)
+        if not cleaned_msg:
+            return {"status": "empty", "is_flagged": False, "action_taken": "no action"}
+
+        # Step 2: Signal Layer
+        toxicity_info = self.toxicity_classifier.predict(cleaned_msg)
+        emotion_info = self.emotion_classifier.predict(cleaned_msg)
+        tox_score = toxicity_info.get("toxicity_score", 0.0)
+        top_emotion = emotion_info.get("top_emotion", "neutral")
+
+        # Step 4: RAG Retrieval
+        recent_thread = get_conversation_thread(limit=CONTEXT_HISTORY_N + 1)
+        context_history = [m for m in recent_thread if m.get("id") != message_id]
+        retrieved_context = self.rag_manager.retrieve_context(context_history, n_recent=CONTEXT_HISTORY_N)
+        retrieved_examples = self.rag_manager.retrieve_similar_examples(cleaned_msg)
+
+        # Step 5: LLM Reasoning Agent
+        try:
+            verdict = self.llm_agent.evaluate_flagged_message(
+                message_text=cleaned_msg,
+                context_history=retrieved_context,
+                precedent_examples=retrieved_examples,
+                toxicity_info=toxicity_info,
+                emotion_info=emotion_info
+            )
+        except Exception as e_llm:
+            logger.warning(f"LLM Agent evaluation failed on reported message, using fallback: {e_llm}")
+            verdict = self.llm_agent._generate_fallback_verdict(
+                message_text=cleaned_msg,
+                context_history=retrieved_context,
+                precedent_examples=retrieved_examples,
+                toxicity_info=toxicity_info,
+                emotion_info=emotion_info
+            )
+
+        severity = verdict.get("severity", "none")
+        action_taken, notification_target = map_severity_to_action(severity)
+
+        if severity in ["moderate", "severe"]:
+            enforce_user_policy_action(
+                user_id=user_id,
+                message_id=message_id,
+                severity=severity,
+                reason=verdict.get("explanation", "Violation of community standards"),
+                taken_by="system"
+            )
+
+        retrieved_policy = []
+        user_report = ""
+        category = verdict.get("category", "not_bullying")
+
+        if action_taken != "no action" and severity != "none":
+            try:
+                retrieved_policy = self.rag_manager.retrieve_policy_snippets(category)
+                user_report = self.llm_agent.generate_user_facing_report(verdict, retrieved_policy, action_taken)
+            except Exception as e_pol:
+                logger.warning(f"Policy report generation failed: {e_pol}")
+                user_report = f"Notice: Message violated platform safety guidelines ({category}). Action taken: {action_taken}."
+
+        verdict_id = save_verdict(
+            message_id=message_id,
+            verdict=verdict,
+            toxicity_score=tox_score,
+            top_emotion=top_emotion,
+            action_taken=action_taken,
+            user_report=user_report,
+            context_retrieved=retrieved_context,
+            examples_retrieved=retrieved_examples,
+            policy_retrieved=retrieved_policy
+        )
+
+        return {
+            "message_id": message_id,
+            "verdict_id": verdict_id,
+            "user_id": user_id,
+            "text": cleaned_msg,
+            "is_flagged": True,
+            "report_type": report_type,
+            "toxicity_score": tox_score,
+            "top_emotion": top_emotion,
+            "category": category,
+            "severity": severity,
+            "action_taken": action_taken,
+            "explanation": verdict.get("explanation", ""),
+            "user_report": user_report,
+        }

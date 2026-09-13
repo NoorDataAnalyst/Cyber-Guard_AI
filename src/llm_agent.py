@@ -116,7 +116,10 @@ class LLMReasoningAgent:
             try:
                 import google.generativeai as genai
                 genai.configure(api_key=GEMINI_API_KEY)
-                g_model = genai.GenerativeModel("gemini-1.5-flash")
+                try:
+                    g_model = genai.GenerativeModel("gemini-2.5-flash")
+                except Exception:
+                    g_model = genai.GenerativeModel("gemini-flash-latest")
                 g_resp = g_model.generate_content(f"{system_prompt}\n\n{user_content}")
                 verdict = self._parse_and_validate_json(g_resp.text.strip())
                 if verdict:

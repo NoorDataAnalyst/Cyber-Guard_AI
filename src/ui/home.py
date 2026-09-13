@@ -72,12 +72,9 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
                 if not is_flagged and not is_restricted:
                     if st.button("🚩 Report", key=f"rep_{msg['id']}"):
                         with st.spinner("Analyzing manual report..."):
-                            pipeline.process_message(
-                                sender=current_username,
-                                text=msg['text'],
-                                report_type="manual_user_report",
-                                force_flag=True,
-                                email=current_email
+                            pipeline.process_existing_message(
+                                message_id=msg['id'],
+                                report_type="manual_user_report"
                             )
                         st.success("Reported to Admin queue.")
                         st.rerun()
@@ -105,18 +102,14 @@ def render_home_tab():
         param_email = st.query_params.get("email", "")
         param_role = st.query_params.get("role", "")
 
-        if param_email == "admin@cyberguard.ai" or param_role == "admin":
-            st.session_state["is_admin"] = True
-            st.session_state["role"] = "admin"
-            st.session_state["username"] = "Admin"
-            st.session_state["email"] = "admin@cyberguard.ai"
-            st.session_state["user_id"] = 1
-        elif param_username:
-            user_info = get_or_create_user(param_username, email=param_email)
+        if param_username or param_email:
+            user_info = get_or_create_user(param_username or "User", email=param_email)
+            is_admin = (user_info.get("role") == "admin" or param_role == "admin")
             st.session_state["username"] = user_info["username"]
             st.session_state["user_id"] = user_info["user_id"]
             st.session_state["email"] = user_info.get("email", "")
-            st.session_state["role"] = user_info.get("role", "user")
+            st.session_state["role"] = "admin" if is_admin else user_info.get("role", "user")
+            st.session_state["is_admin"] = is_admin
 
     # ── 2. FIRST GATE: Sign-In Screen (Shown when not authenticated) ──────
     if "username" not in st.session_state or not st.session_state["username"]:
@@ -151,7 +144,7 @@ def render_home_tab():
                         if not res.get("authenticated"):
                             st.error(res.get("error", "Authentication failed."))
                         else:
-                            is_admin = (res.get("role") == "admin" or res.get("email") == "admin@cyberguard.ai")
+                            is_admin = (res.get("role") == "admin")
                             st.session_state["username"] = res["username"]
                             st.session_state["user_id"] = res["user_id"]
                             st.session_state["email"] = res.get("email", "")

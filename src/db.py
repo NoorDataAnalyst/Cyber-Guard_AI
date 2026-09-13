@@ -27,7 +27,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from src.config import DB_PATH
+from src.config import DB_PATH, DEFAULT_ADMIN_EMAIL, DEFAULT_ADMIN_USERNAME, DEFAULT_ADMIN_PASSWORD
 
 logger = logging.getLogger(__name__)
 
@@ -127,20 +127,22 @@ class AppealModel(Base):
 
 def _get_database_uri() -> str:
     """Attempts to read DATABASE_URL from Streamlit secrets or environment variables."""
-    # Check Streamlit secrets first
+    raw_url = ""
     try:
         import streamlit as st
         if hasattr(st, "secrets") and "DATABASE_URL" in st.secrets:
-            return st.secrets["DATABASE_URL"]
+            raw_url = str(st.secrets["DATABASE_URL"]).strip()
     except Exception:
         pass
 
-    # Check environment variable
-    db_url = os.getenv("DATABASE_URL", "").strip()
-    if db_url:
-        return db_url
+    if not raw_url:
+        raw_url = os.getenv("DATABASE_URL", "").strip()
 
-    return ""
+    # Ignore dummy/placeholder example URIs
+    if "postgres.xxxx" in raw_url or "your_password" in raw_url:
+        return ""
+
+    return raw_url
 
 
 def _probe_sqlite_schema(engine) -> bool:
@@ -236,19 +238,19 @@ def init_db() -> None:
         except Exception:
             pass
 
-    # Pre-seed Admin Account: admin@cyberguard.ai / admin123
+    # Pre-seed Admin Account using configurable credentials
     session = SessionLocal()
     try:
-        admin_user = session.query(UserModel).filter(UserModel.email == "admin@cyberguard.ai").first()
-        if not admin_user:
-            admin_user = session.query(UserModel).filter(UserModel.username == "Admin").first()
+        admin_user = session.query(UserModel).filter(
+            (UserModel.email == DEFAULT_ADMIN_EMAIL) | (UserModel.username == DEFAULT_ADMIN_USERNAME)
+        ).first()
 
         if not admin_user:
             now_iso = datetime.utcnow().isoformat()
             admin_user = UserModel(
-                username="Admin",
-                email="admin@cyberguard.ai",
-                password="admin123",
+                username=DEFAULT_ADMIN_USERNAME,
+                email=DEFAULT_ADMIN_EMAIL,
+                password=DEFAULT_ADMIN_PASSWORD,
                 role="admin",
                 status="active",
                 created_at=now_iso,
@@ -256,10 +258,8 @@ def init_db() -> None:
             session.add(admin_user)
             session.commit()
         else:
-            if admin_user.email != "admin@cyberguard.ai" or admin_user.role != "admin" or admin_user.password != "admin123":
-                admin_user.email = "admin@cyberguard.ai"
+            if admin_user.role != "admin":
                 admin_user.role = "admin"
-                admin_user.password = "admin123"
                 session.commit()
     except Exception as e:
         logger.warning(f"Note during admin seeding: {e}")
@@ -283,17 +283,11 @@ def authenticate_or_register_user(
 ) -> Dict[str, Any]:
     """
     Authenticates an existing user by email/username + password, or registers a new user.
-    Special cases admin@cyberguard.ai with password admin123 -> role='admin'.
+    User roles are dynamically fetched from the database table.
     """
     clean_email = str(email).strip().lower() if email and str(email).strip() else ""
     clean_pass = str(password).strip() if password else ""
     clean_name = str(username).strip() if username and str(username).strip() else ""
-
-    # Special Admin credential check
-    if clean_email == "admin@cyberguard.ai" or (clean_name.lower() == "admin" and not clean_email):
-        clean_email = "admin@cyberguard.ai"
-        if clean_pass != "admin123":
-            return {"authenticated": False, "error": "Invalid admin password. Admin login requires password 'admin123'."}
 
     session = SessionLocal()
     try:
@@ -317,7 +311,7 @@ def authenticate_or_register_user(
                 session.commit()
 
             session.refresh(user)
-            role = getattr(user, "role", "user") or ("admin" if user.email == "admin@cyberguard.ai" else "user")
+            role = getattr(user, "role", "user") or "user"
             return {
                 "authenticated": True,
                 "user_id": user.user_id,
@@ -338,7 +332,12 @@ def authenticate_or_register_user(
             suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
             final_name = f"{clean_name}_{suffix}"
 
-        role = "admin" if clean_email == "admin@cyberguard.ai" else "user"
+        # Assign admin role if registering with configured admin email or username
+        is_default_admin = (clean_email and clean_email == DEFAULT_ADMIN_EMAIL.lower()) or (clean_name.lower() == DEFAULT_ADMIN_USERNAME.lower())
+        if is_default_admin and clean_pass != DEFAULT_ADMIN_PASSWORD:
+            return {"authenticated": False, "error": "Invalid password for admin account."}
+
+        role = "admin" if is_default_admin else "user"
         now_iso = datetime.utcnow().isoformat()
         new_user = UserModel(
             username=final_name,
@@ -392,7 +391,7 @@ def get_or_create_user(username: str, email: Optional[str] = None, password: Opt
             "user_id": 1,
             "username": clean_name,
             "email": email,
-            "role": "admin" if email == "admin@cyberguard.ai" else "user",
+            "role": "admin" if (email and email.lower() == DEFAULT_ADMIN_EMAIL.lower()) else "user",
             "status": "active",
             "created_at": datetime.utcnow().isoformat(),
         }
@@ -628,6 +627,21 @@ def save_message(sender: str, text: str, is_flagged: bool = False, report_type: 
         session.add(msg)
         session.commit()
         return msg.message_id
+    finally:
+        session.close()
+
+
+def flag_existing_message(message_id: int, report_type: str = "manual_user_report") -> bool:
+    """Flags an existing message row for manual report without creating a duplicate message."""
+    session = SessionLocal()
+    try:
+        msg = session.query(MessageModel).filter(MessageModel.message_id == message_id).first()
+        if msg:
+            msg.is_flagged = True
+            msg.source = report_type
+            session.commit()
+            return True
+        return False
     finally:
         session.close()
 
