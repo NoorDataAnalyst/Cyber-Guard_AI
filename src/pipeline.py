@@ -18,6 +18,7 @@ from src.db import (
     save_message,
     save_verdict,
     get_conversation_thread,
+    get_context_history_for_message,
     get_or_create_user,
     get_user_status,
     flag_existing_message,
@@ -138,8 +139,7 @@ class CyberbullyingPipeline:
 
             # Step 4: RETRIEVAL LAYER (FAISS - context history & precedent examples)
             try:
-                recent_thread = get_conversation_thread(limit=CONTEXT_HISTORY_N + 1)
-                context_history = [m for m in recent_thread if m.get("id") != msg_id]
+                context_history = get_context_history_for_message(target_message_id=msg_id, limit=CONTEXT_HISTORY_N)
                 retrieved_context = self.rag_manager.retrieve_context(context_history, n_recent=CONTEXT_HISTORY_N)
                 retrieved_examples = self.rag_manager.retrieve_similar_examples(cleaned_msg)
             except Exception as e_rag:
@@ -287,9 +287,8 @@ class CyberbullyingPipeline:
         tox_score = toxicity_info.get("toxicity_score", 0.0)
         top_emotion = emotion_info.get("top_emotion", "neutral")
 
-        # Step 4: RAG Retrieval
-        recent_thread = get_conversation_thread(limit=CONTEXT_HISTORY_N + 1)
-        context_history = [m for m in recent_thread if m.get("id") != message_id]
+        # Step 4: RAG Retrieval (Retrieves prior N messages leading up to message_id)
+        context_history = get_context_history_for_message(target_message_id=message_id, limit=CONTEXT_HISTORY_N)
         retrieved_context = self.rag_manager.retrieve_context(context_history, n_recent=CONTEXT_HISTORY_N)
         retrieved_examples = self.rag_manager.retrieve_similar_examples(cleaned_msg)
 

@@ -752,6 +752,40 @@ def get_conversation_thread(limit: int = 50) -> List[Dict[str, Any]]:
         session.close()
 
 
+def get_context_history_for_message(target_message_id: Optional[int] = None, limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    Retrieves the previous `limit` messages (up to N=5) immediately prior to `target_message_id`.
+    If target_message_id is None, retrieves the latest `limit` messages from the thread.
+    """
+    session = SessionLocal()
+    try:
+        query = (
+            session.query(MessageModel, UserModel)
+            .outerjoin(UserModel, MessageModel.user_id == UserModel.user_id)
+        )
+        if target_message_id is not None:
+            query = query.filter(MessageModel.message_id < target_message_id)
+
+        rows = (
+            query.order_by(MessageModel.message_id.desc())
+            .limit(limit)
+            .all()
+        )
+
+        results = []
+        for msg, user in reversed(rows):
+            results.append({
+                "id": msg.message_id,
+                "timestamp": msg.timestamp,
+                "sender": user.username if user else "Anonymous",
+                "text": msg.text,
+                "is_flagged": msg.is_flagged,
+            })
+        return results
+    finally:
+        session.close()
+
+
 def get_flagged_verdicts(
     severity_filter: Optional[str] = None,
     category_filter: Optional[str] = None

@@ -180,6 +180,24 @@ class TestSaveMessage:
         assert len(matching_messages) == 1
         assert matching_messages[0]["severity"] == "severe"
 
+    def test_get_context_history_for_message_retrieves_prior_5_messages(self):
+        from src.db import get_context_history_for_message
+        m1 = save_message("User1", "Message 1")
+        m2 = save_message("User2", "Message 2")
+        m3 = save_message("User3", "Message 3")
+        m4 = save_message("User4", "Message 4")
+        m5 = save_message("User5", "Message 5")
+        m6 = save_message("User6", "Message 6 (Reported)")
+        m7 = save_message("User7", "Message 7 (Subsequent)")
+
+        # Prior context for m6 must return m1..m5 (excluding m6 and m7)
+        context = get_context_history_for_message(target_message_id=m6, limit=5)
+        context_ids = [m["id"] for m in context]
+        assert context_ids == [m1, m2, m3, m4, m5]
+        assert m6 not in context_ids
+        assert m7 not in context_ids
+
+
 
 # ── Analytics ─────────────────────────────────────────────────────────────────
 
