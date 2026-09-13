@@ -59,7 +59,6 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
             is_flagged = bool(msg.get("is_flagged", False))
             severity = msg.get("severity") or "none"
             action_taken = msg.get("action_taken") or "no action"
-            is_reported_or_scanned = bool(msg.get("is_reported") or msg.get("has_verdict"))
 
             col_msg, col_badge = st.columns([0.8, 0.2])
             with col_msg:
@@ -67,12 +66,12 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
             with col_badge:
                 if is_flagged:
                     st.markdown(render_severity_badge(severity), unsafe_allow_html=True)
-                elif is_reported_or_scanned:
+                else:
                     st.markdown(render_severity_badge("none"), unsafe_allow_html=True)
 
             col_rep, col_exp = st.columns([0.2, 0.8])
             with col_rep:
-                if not is_flagged and not is_restricted and not is_reported_or_scanned:
+                if not is_flagged and not is_restricted:
                     if st.button("🚩 Report", key=f"rep_{msg['id']}_{idx}"):
                         with st.spinner("Analyzing manual report..."):
                             res = pipeline.process_existing_message(
@@ -97,6 +96,11 @@ def render_realtime_chat_messages(current_username: str, current_email: str, is_
                         st.markdown("<div class='legal-box'>", unsafe_allow_html=True)
                         st.markdown(f"**User-Facing Policy Notice**:\n\n{msg['user_report']}")
                         st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                clean_reason = msg.get("explanation") or "Content passed safety checks (Toxicity score within safe threshold, non-hostile emotion)."
+                with st.expander("🟢 Why is this marked clean?"):
+                    st.markdown(f"**Safety Status**: `🟢 Clean / Non-Toxic`")
+                    st.markdown(f"**Analysis Reasoning**:\n_{clean_reason}_")
 
 
 def render_home_tab():
