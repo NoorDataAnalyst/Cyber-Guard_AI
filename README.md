@@ -218,7 +218,7 @@ cyberbullying-detector/
 
 This system references Pakistan's **Prevention of Electronic Crimes Act (PECA) 2016** and **FIA Cyber Crime Wing** policy corpus for educational and research purposes only. It is not a substitute for professional legal advice.
 
-* [Prevention of Electronic Crimes Act (PECA) 2016 - National Assembly of Pakistan](https://pakistancode.gov.pk/english/UY2FqaJw1-apaUY2Fqa-apaUY2Jvbp8%253D-sg-jjjjjjjjjjjjj).
+* [Prevention of Electronic Crimes Act (PECA) 2016 - National Assembly of Pakistan](https://pakistancode.gov.pk/pdffiles/administrator6a061efe0ed5bd153fa8b79b8eb4cba7.pdf).
 * [FIA Cyber Crime Wing Guidelines & Publications](https://www.fia.gov.pk/files/publications/860464251.pdf)
 
 ---
