@@ -323,18 +323,28 @@ def render_home_tab():
                 unsafe_allow_html=True
             )
 
+        if is_restricted:
             pending_appeals = get_pending_appeals()
             user_pending = [a for a in pending_appeals if a["user_id"] == user_id]
 
             if user_pending:
-                st.info("⏳ **Your appeal is under review by an administrator.**")
+                st.info("📩 **Admin Review Request Dispatched**: A review request has been sent to the Admin queue for review.")
+                with st.expander("📝 Provide additional statement for the Admin"):
+                    appeal_input = st.text_area("Explain why your restriction should be lifted:", height=100, key="appeal_update_area")
+                    if st.button("Send Additional Statement to Admin", key="update_appeal_btn"):
+                        if appeal_input.strip():
+                            create_appeal(user_id=user_id, appeal_text=appeal_input.strip())
+                            st.success("Your statement has been sent to the Admin queue!")
+                            st.rerun()
+                        else:
+                            st.warning("Please enter an explanation before submitting.")
             else:
-                st.markdown("### 📝 Submit Account Ban Appeal")
+                st.markdown("### 📝 Send Appeal / Review Request to Admin")
                 appeal_input = st.text_area("Explain why your restriction should be lifted:", height=100, key="appeal_text_area")
-                if st.button("Submit Appeal to Admin Queue", key="submit_appeal_btn"):
+                if st.button("Submit Request to Admin Queue", key="submit_appeal_btn"):
                     if appeal_input.strip():
                         create_appeal(user_id=user_id, appeal_text=appeal_input.strip())
-                        st.success("Your appeal has been submitted successfully!")
+                        st.success("Your appeal request has been submitted successfully!")
                         st.rerun()
                     else:
                         st.warning("Please enter an explanation before submitting.")

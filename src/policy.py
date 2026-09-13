@@ -42,25 +42,39 @@ def enforce_user_policy_action(
     taken_by: str = "system"
 ) -> Optional[Dict[str, Any]]:
     """
-    Applies user-level restrictions (30-minute mute for moderate, severe block for severe).
+    Applies user-level restrictions (30-minute mute for moderate, severe block for severe)
+    and automatically dispatches an admin review request to the Admin Queue.
     """
     if not user_id:
         return None
 
     sev_clean = str(severity).strip().lower()
 
+    res = None
     if sev_clean == "moderate":
         # Mute user for 30 minutes
         res = set_restriction(user_id, status="muted", reason=reason, severity="moderate", blocked_by=taken_by, mute_minutes=30)
         log_action(message_id=message_id, user_id=user_id, action_type="mute", taken_by=taken_by, admin_note=reason)
-        return res
     elif sev_clean == "severe":
         # Full account block (requires appeal)
         res = set_restriction(user_id, status="blocked", reason=reason, severity="severe", blocked_by=taken_by)
         log_action(message_id=message_id, user_id=user_id, action_type="block", taken_by=taken_by, admin_note=reason)
-        return res
 
-    return None
+    if res and sev_clean in ["moderate", "severe"]:
+        try:
+            from src.db import get_pending_appeals, create_appeal
+            pending = get_pending_appeals()
+            user_pending = [a for a in pending if a["user_id"] == user_id]
+            if not user_pending:
+                create_appeal(
+                    user_id=user_id,
+                    appeal_text=f"[System Auto-Notification] Account restricted ({sev_clean.upper()}). Reason: {reason}"
+                )
+        except Exception as err:
+            import logging
+            logging.getLogger(__name__).warning(f"Could not auto-create admin appeal request: {err}")
+
+    return res
 
 
 def apply_admin_override(
