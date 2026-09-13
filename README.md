@@ -110,9 +110,9 @@ DATABASE_URL=postgresql://postgres.<project-ref>:<your-password>@aws-0-<region>.
 In your Streamlit Cloud dashboard → App settings → Secrets, add:
 
 ```toml
-ADMIN_EMAIL = "admin@cyberguard.ai"
-ADMIN_USERNAME = "Admin"
-ADMIN_PASSWORD = "your_secure_admin_password"
+ADMIN_EMAIL = "your_admin_email_here"
+ADMIN_USERNAME = "your_admin_username_here"
+ADMIN_PASSWORD = "your_admin_password_here"
 
 GEMINI_API_KEY = "your_gemini_key"
 ANTHROPIC_API_KEY = "your_anthropic_key"
@@ -141,9 +141,9 @@ SQLAlchemy will automatically run `CREATE TABLE IF NOT EXISTS` for all ORM model
 ## 🔑 Accessing Admin & User Accounts
 
 ### 👑 Administrator Account Access
-- **Default Email**: `admin@cyberguard.ai` *(or as set in `ADMIN_EMAIL`)*
-- **Default Username**: `Admin` *(or as set in `ADMIN_USERNAME`)*
-- **Default Password**: `admin123` *(or as set in `ADMIN_PASSWORD`)*
+- **Email**: *(as set in `ADMIN_EMAIL`)*
+- **Username**: *(as set in `ADMIN_USERNAME`)*
+- **Password**: *(as set in `ADMIN_PASSWORD`)*
 
 **Capabilities**:
 - Access the **Administrator Governance Dashboard**.
