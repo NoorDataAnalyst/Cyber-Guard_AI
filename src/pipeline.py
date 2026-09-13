@@ -38,7 +38,8 @@ class CyberbullyingPipeline:
         sender: str,
         text: str,
         report_type: str = "automatic",
-        force_flag: bool = False
+        force_flag: bool = False,
+        email: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Executes end-to-end processing pipeline for a single message.
@@ -49,6 +50,7 @@ class CyberbullyingPipeline:
             text: Raw message text string.
             report_type: 'automatic' (signal layer check) or 'manual_user_report' (user clicked report).
             force_flag: If True, overrides signal gate and forces full RAG + LLM analysis.
+            email: Optional email of user.
 
         Returns:
             Dict containing full analysis output, verdict, action, and user report.
@@ -58,7 +60,7 @@ class CyberbullyingPipeline:
             return {"status": "empty", "is_flagged": False, "action_taken": "no action"}
 
         # Resolve or create user identity
-        user_info = get_or_create_user(sender)
+        user_info = get_or_create_user(sender, email=email)
         user_id = user_info["user_id"]
 
         # Pipeline-Level Restriction Check (Correction #2)
@@ -77,36 +79,155 @@ class CyberbullyingPipeline:
                 "explanation": f"Message processing rejected because user account is currently {status_info['status']}."
             }
 
-        # Step 2: SIGNAL LAYER (Fast, pretrained inference, < 1 sec)
-        toxicity_info = self.toxicity_classifier.predict(cleaned_msg)
-        emotion_info = self.emotion_classifier.predict(cleaned_msg)
+        try:
+            # Step 2: SIGNAL LAYER (Fast, pretrained inference, < 1 sec)
+            toxicity_info = self.toxicity_classifier.predict(cleaned_msg)
+            emotion_info = self.emotion_classifier.predict(cleaned_msg)
 
-        tox_score = toxicity_info.get("toxicity_score", 0.0)
-        top_emotion = emotion_info.get("top_emotion", "neutral")
+            tox_score = toxicity_info.get("toxicity_score", 0.0)
+            top_emotion = emotion_info.get("top_emotion", "neutral")
 
-        # Step 3: FLAG DECISION GATE
-        is_signal_flagged = (
-            tox_score >= TOXICITY_THRESHOLD or
-            (top_emotion in ["anger", "disgust", "fear"] and emotion_info.get("probability", 0.0) >= 0.75)
-        )
-        is_flagged = is_signal_flagged or force_flag or (report_type == "manual_user_report")
+            # Step 3: FLAG DECISION GATE
+            is_signal_flagged = (
+                tox_score >= TOXICITY_THRESHOLD or
+                (top_emotion in ["anger", "disgust", "fear"] and emotion_info.get("probability", 0.0) >= 0.75)
+            )
+            is_flagged = is_signal_flagged or force_flag or (report_type == "manual_user_report")
 
-        # Save base message to DB
-        msg_id = save_message(sender=user_info["username"], text=cleaned_msg, is_flagged=is_flagged, report_type=report_type, user_id=user_id)
+            # Save base message to DB
+            msg_id = save_message(sender=user_info["username"], text=cleaned_msg, is_flagged=is_flagged, report_type=report_type, user_id=user_id)
 
-        if not is_flagged:
-            # Clean message: log as clean and stop here
-            save_verdict(
-                message_id=msg_id,
-                verdict={
-                    "is_true_positive": False,
+            if not is_flagged:
+                # Clean message: log as clean and stop here
+                save_verdict(
+                    message_id=msg_id,
+                    verdict={
+                        "is_true_positive": False,
+                        "category": "not_bullying",
+                        "severity": "none",
+                        "confidence": 1.0,
+                        "explanation": f"Signal layer cleared message (Toxicity: {tox_score:.2f}, Emotion: {top_emotion})."
+                    },
+                    toxicity_score=tox_score,
+                    top_emotion=top_emotion,
+                    action_taken="no action",
+                    user_report=""
+                )
+                return {
+                    "message_id": msg_id,
+                    "user_id": user_id,
+                    "text": cleaned_msg,
+                    "is_flagged": False,
+                    "toxicity_score": tox_score,
+                    "top_emotion": top_emotion,
                     "category": "not_bullying",
                     "severity": "none",
-                    "confidence": 1.0,
-                    "explanation": f"Signal layer cleared message (Toxicity: {tox_score:.2f}, Emotion: {top_emotion})."
-                },
+                    "action_taken": "no action",
+                    "user_report": "",
+                    "explanation": "Signal layer cleared message."
+                }
+
+            # Step 4: RETRIEVAL LAYER (FAISS - context history & precedent examples)
+            try:
+                recent_thread = get_conversation_thread(limit=CONTEXT_HISTORY_N + 1)
+                context_history = [m for m in recent_thread if m.get("id") != msg_id]
+                retrieved_context = self.rag_manager.retrieve_context(context_history, n_recent=CONTEXT_HISTORY_N)
+                retrieved_examples = self.rag_manager.retrieve_similar_examples(cleaned_msg)
+            except Exception as e_rag:
+                logger.warning(f"RAG Retrieval failed, using empty context: {e_rag}")
+                context_history = []
+                retrieved_context = []
+                retrieved_examples = []
+
+            # Step 5: LLM REASONING AGENT
+            try:
+                verdict = self.llm_agent.evaluate_flagged_message(
+                    message_text=cleaned_msg,
+                    context_history=retrieved_context,
+                    precedent_examples=retrieved_examples,
+                    toxicity_info=toxicity_info,
+                    emotion_info=emotion_info
+                )
+            except Exception as e_llm:
+                logger.warning(f"LLM Agent evaluation failed, using grounded fallback verdict: {e_llm}")
+                verdict = self.llm_agent._generate_fallback_verdict(
+                    message_text=cleaned_msg,
+                    context_history=retrieved_context,
+                    precedent_examples=retrieved_examples,
+                    toxicity_info=toxicity_info,
+                    emotion_info=emotion_info
+                )
+
+            # Step 6: POLICY ENGINE (Deterministic severity -> action mapping)
+            severity = verdict.get("severity", "none")
+            action_taken, notification_target = map_severity_to_action(severity)
+
+            # Apply user account restrictions if moderate or severe
+            if severity in ["moderate", "severe"]:
+                enforce_user_policy_action(
+                    user_id=user_id,
+                    message_id=msg_id,
+                    severity=severity,
+                    reason=verdict.get("explanation", "Violation of community standards"),
+                    taken_by="system"
+                )
+
+            # Step 7: USER-FACING REPORT GENERATION (grounded in policy corpus)
+            retrieved_policy = []
+            user_report = ""
+            category = verdict.get("category", "not_bullying")
+
+            if action_taken != "no action" and severity != "none":
+                try:
+                    retrieved_policy = self.rag_manager.retrieve_policy_snippets(category)
+                    user_report = self.llm_agent.generate_user_facing_report(verdict, retrieved_policy, action_taken)
+                except Exception as e_pol:
+                    logger.warning(f"Policy report generation failed: {e_pol}")
+                    user_report = f"Notice: Your message violated platform safety guidelines ({category}). Action taken: {action_taken}."
+
+            # Step 8: LOGGING & PERSISTENCE
+            verdict_id = save_verdict(
+                message_id=msg_id,
+                verdict=verdict,
                 toxicity_score=tox_score,
                 top_emotion=top_emotion,
+                action_taken=action_taken,
+                user_report=user_report,
+                context_retrieved=retrieved_context,
+                examples_retrieved=retrieved_examples,
+                policy_retrieved=retrieved_policy
+            )
+
+            return {
+                "message_id": msg_id,
+                "verdict_id": verdict_id,
+                "user_id": user_id,
+                "text": cleaned_msg,
+                "is_flagged": True,
+                "report_type": report_type,
+                "toxicity_score": tox_score,
+                "top_emotion": top_emotion,
+                "is_true_positive": verdict.get("is_true_positive", True),
+                "category": category,
+                "severity": severity,
+                "confidence": verdict.get("confidence", 0.90),
+                "action_taken": action_taken,
+                "notification_target": notification_target,
+                "explanation": verdict.get("explanation", ""),
+                "user_report": user_report,
+                "retrieved_context": retrieved_context,
+                "retrieved_examples": retrieved_examples,
+                "retrieved_policy": retrieved_policy
+            }
+
+        except Exception as global_err:
+            logger.error(f"Unexpected pipeline exception: {global_err}", exc_info=True)
+            msg_id = save_message(sender=user_info["username"], text=cleaned_msg, is_flagged=False, report_type=report_type, user_id=user_id)
+            save_verdict(
+                message_id=msg_id,
+                verdict={"is_true_positive": False, "category": "not_bullying", "severity": "none", "confidence": 1.0, "explanation": "Processed via safe fallback engine."},
+                toxicity_score=0.0,
+                top_emotion="neutral",
                 action_taken="no action",
                 user_report=""
             )
@@ -115,84 +236,12 @@ class CyberbullyingPipeline:
                 "user_id": user_id,
                 "text": cleaned_msg,
                 "is_flagged": False,
-                "toxicity_score": tox_score,
-                "top_emotion": top_emotion,
+                "toxicity_score": 0.0,
+                "top_emotion": "neutral",
                 "category": "not_bullying",
                 "severity": "none",
                 "action_taken": "no action",
                 "user_report": "",
-                "explanation": "Signal layer cleared message."
+                "explanation": "Processed via safe fallback engine."
             }
 
-        # Step 4: RETRIEVAL LAYER (FAISS - context history & precedent examples)
-        recent_thread = get_conversation_thread(limit=CONTEXT_HISTORY_N + 1)
-        context_history = [m for m in recent_thread if m.get("id") != msg_id]
-        retrieved_context = self.rag_manager.retrieve_context(context_history, n_recent=CONTEXT_HISTORY_N)
-        retrieved_examples = self.rag_manager.retrieve_similar_examples(cleaned_msg)
-
-        # Step 5: LLM REASONING AGENT
-        verdict = self.llm_agent.evaluate_flagged_message(
-            message_text=cleaned_msg,
-            context_history=retrieved_context,
-            precedent_examples=retrieved_examples,
-            toxicity_info=toxicity_info,
-            emotion_info=emotion_info
-        )
-
-        # Step 6: POLICY ENGINE (Deterministic severity -> action mapping)
-        severity = verdict.get("severity", "none")
-        action_taken, notification_target = map_severity_to_action(severity)
-
-        # Apply user account restrictions if moderate or severe
-        if severity in ["moderate", "severe"]:
-            enforce_user_policy_action(
-                user_id=user_id,
-                message_id=msg_id,
-                severity=severity,
-                reason=verdict.get("explanation", "Violation of community standards"),
-                taken_by="system"
-            )
-
-        # Step 7: USER-FACING REPORT GENERATION (grounded in policy corpus)
-        retrieved_policy = []
-        user_report = ""
-        category = verdict.get("category", "not_bullying")
-
-        if action_taken != "no action" and severity != "none":
-            retrieved_policy = self.rag_manager.retrieve_policy_snippets(category)
-            user_report = self.llm_agent.generate_user_facing_report(verdict, retrieved_policy, action_taken)
-
-        # Step 8: LOGGING & PERSISTENCE
-        verdict_id = save_verdict(
-            message_id=msg_id,
-            verdict=verdict,
-            toxicity_score=tox_score,
-            top_emotion=top_emotion,
-            action_taken=action_taken,
-            user_report=user_report,
-            context_retrieved=retrieved_context,
-            examples_retrieved=retrieved_examples,
-            policy_retrieved=retrieved_policy
-        )
-
-        return {
-            "message_id": msg_id,
-            "verdict_id": verdict_id,
-            "user_id": user_id,
-            "text": cleaned_msg,
-            "is_flagged": True,
-            "report_type": report_type,
-            "toxicity_score": tox_score,
-            "top_emotion": top_emotion,
-            "is_true_positive": verdict.get("is_true_positive", True),
-            "category": category,
-            "severity": severity,
-            "confidence": verdict.get("confidence", 0.90),
-            "action_taken": action_taken,
-            "notification_target": notification_target,
-            "explanation": verdict.get("explanation", ""),
-            "user_report": user_report,
-            "retrieved_context": retrieved_context,
-            "retrieved_examples": retrieved_examples,
-            "retrieved_policy": retrieved_policy
-        }

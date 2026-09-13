@@ -36,6 +36,6 @@ def render_tech_stack_tab():
             "F1-Score": [0.8000, 0.9375],
         }
         df_eval = pd.DataFrame(eval_data)
-        st.dataframe(df_eval, use_container_width=True, hide_index=True)
+        st.dataframe(df_eval, width="stretch", hide_index=True)
 
         st.info("💡 **Takeaway**: The pretrained transformer (`toxic-bert`) achieves a **93.75% F1-Score**, outperforming the classical TF-IDF baseline by +13.75% without requiring custom training from scratch.")

@@ -113,7 +113,7 @@ class ToxicityClassifier:
         # Heuristic Rule Fallback if transformer is loading/offline
         lowered = cleaned.lower()
         matched_words = [w for w in FALLBACK_TOXIC_KEYWORDS if w in lowered]
-        fallback_score = min(0.85, 0.45 * len(matched_words)) if matched_words else 0.05
+        fallback_score = min(0.85, 0.60 * len(matched_words)) if matched_words else 0.05
 
         return {
             "toxicity_score": round(fallback_score, 4),

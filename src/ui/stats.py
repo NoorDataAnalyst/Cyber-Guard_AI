@@ -11,24 +11,24 @@ from src.db import get_analytics_data
 
 
 SEVERITY_COLOR_MAP = {
-    "severe":   "#c62828",
-    "moderate": "#e65100",
-    "mild":     "#f57f17",
-    "none":     "#2e7d32",
-    "clean":    "#2e7d32",
+    "severe":   "#DC2626",
+    "moderate": "#D97706",
+    "mild":     "#EAB308",
+    "none":     "#16A34A",
+    "clean":    "#16A34A",
 }
 
 CATEGORY_COLORS = [
-    "#5865f2", "#eb4b8b", "#f5a623", "#43a047",
-    "#00acc1", "#8e24aa", "#e53935", "#3949ab",
+    "#3B5BDB", "#EC4899", "#F59E0B", "#16A34A",
+    "#0EA5A5", "#8B5CF6", "#EF4444", "#6366F1",
 ]
 
 
-def _make_metric_card(label: str, value, delta_label: str = "", color: str = "#5865f2") -> str:
+def _make_metric_card(label: str, value, delta_label: str = "", color: str = "#3B5BDB") -> str:
     return f"""
     <div style="
-        background: linear-gradient(135deg, #1e222d, #252a37);
-        border: 1px solid {color}44;
+        background: var(--surface);
+        border: 1px solid var(--border);
         border-left: 4px solid {color};
         border-radius: 12px;
         padding: 20px 24px;
@@ -37,44 +37,22 @@ def _make_metric_card(label: str, value, delta_label: str = "", color: str = "#5
         display: flex;
         flex-direction: column;
         justify-content: center;
+        box-shadow: var(--shadow-sm);
     ">
         <div style="font-size: 2.2rem; font-weight: 800; color: {color};">{value}</div>
-        <div style="font-size: 0.88rem; color: #9ea7c9; margin-top: 6px; font-weight: 600;">{label}</div>
-        {f'<div style="font-size:0.78rem; color:#6b7280; margin-top:4px;">{delta_label}</div>' if delta_label else ''}
+        <div style="font-size: 0.88rem; color: var(--text-muted); margin-top: 6px; font-weight: 600;">{label}</div>
+        {f'<div style="font-size:0.78rem; color:var(--text-faint); margin-top:4px;">{delta_label}</div>' if delta_label else ''}
     </div>
     """
 
 
 def render_stats_tab():
-    st.markdown("""
-        <style>
-        .chart-card {
-            background: #1e222d;
-            border: 1px solid #2d3241;
-            border-radius: 14px;
-            padding: 20px;
-            margin-bottom: 22px;
-        }
-        .stats-header {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-        .stats-header h2 {
-            font-size: 1.9rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #eb4b8b, #f5a623);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin: 0;
-        }
-        .stats-header p {
-            color: #6b7280;
-            font-size: 0.95rem;
-            margin-top: 6px;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+    is_dark = (st.session_state.get("theme") == "dark")
+    text_col = "#F8FAFC" if is_dark else "#0F172A"
+    sub_col  = "#94A3B8" if is_dark else "#475569"
+    grid_col = "#263346" if is_dark else "#E5E7EB"
 
+    # Shared styles (.chart-card, .stats-header) live globally in app.py.
     st.markdown("""
         <div class="stats-header">
             <h2>📈 Platform Analytics</h2>
@@ -98,13 +76,13 @@ def render_stats_tab():
     # ── Metric cards row ──────────────────────────────────────────────────────
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.markdown(_make_metric_card("Total Messages", total_msgs, "all-time", "#5865f2"), unsafe_allow_html=True)
+        st.markdown(_make_metric_card("Total Messages", total_msgs, "all-time", "#3B82F6"), unsafe_allow_html=True)
     with c2:
-        st.markdown(_make_metric_card("Flagged Messages", flagged_msgs, f"Detection rate: {detection_rate}", "#e53935"), unsafe_allow_html=True)
+        st.markdown(_make_metric_card("Flagged Messages", flagged_msgs, f"Detection rate: {detection_rate}", "#DC2626"), unsafe_allow_html=True)
     with c3:
-        st.markdown(_make_metric_card("Total Appeals", total_appeals, f"{pending_appeals} pending", "#f5a623"), unsafe_allow_html=True)
+        st.markdown(_make_metric_card("Total Appeals", total_appeals, f"{pending_appeals} pending", "#D97706"), unsafe_allow_html=True)
     with c4:
-        st.markdown(_make_metric_card("Clean Messages", clean_msgs, "passed all checks", "#43a047"), unsafe_allow_html=True)
+        st.markdown(_make_metric_card("Clean Messages", clean_msgs, "passed all checks", "#16A34A"), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -128,7 +106,7 @@ def render_stats_tab():
                 labels=[s.upper() for s in sev_labels],
                 values=sev_values,
                 hole=0.55,
-                marker=dict(colors=sev_colors, line=dict(color="#0e1117", width=2)),
+                marker=dict(colors=sev_colors, line=dict(color="#151D2A" if is_dark else "#FFFFFF", width=2)),
                 textinfo="percent+label",
                 textfont=dict(size=13, color="white"),
                 hovertemplate="<b>%{label}</b><br>Count: %{value}<br>Share: %{percent}<extra></extra>",
@@ -136,12 +114,12 @@ def render_stats_tab():
             fig_donut.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#c8d0e8", size=13),
+                font=dict(color=text_col, size=13),
                 margin=dict(t=10, b=10, l=10, r=10),
                 showlegend=True,
                 legend=dict(
                     bgcolor="rgba(0,0,0,0)",
-                    font=dict(color="#9ea7c9"),
+                    font=dict(color=sub_col),
                     orientation="h",
                     y=-0.15,
                 ),
@@ -149,11 +127,11 @@ def render_stats_tab():
                 annotations=[dict(
                     text=f"<b>{flagged_msgs}</b><br><span style='font-size:11px'>Flagged</span>",
                     x=0.5, y=0.5,
-                    font=dict(size=16, color="#e8eaf6"),
+                    font=dict(size=16, color=text_col),
                     showarrow=False,
                 )],
             )
-            st.plotly_chart(fig_donut, use_container_width=True)
+            st.plotly_chart(fig_donut, width="stretch")
         else:
             st.caption("No severity data available yet.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -178,28 +156,28 @@ def render_stats_tab():
                 ),
                 text=[f"  {v}" for v in cat_values],
                 textposition="outside",
-                textfont=dict(color="#c8d0e8", size=12),
+                textfont=dict(color=text_col, size=12),
                 hovertemplate="<b>%{y}</b><br>Count: %{x}<extra></extra>",
             ))
             fig_bar.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#c8d0e8", size=12),
+                font=dict(color=text_col, size=12),
                 margin=dict(t=10, b=10, l=10, r=50),
                 xaxis=dict(
                     showgrid=True,
-                    gridcolor="#2d3241",
-                    color="#6b7280",
+                    gridcolor=grid_col,
+                    color=sub_col,
                     zeroline=False,
                 ),
                 yaxis=dict(
-                    color="#9ea7c9",
+                    color=sub_col,
                     automargin=True,
                 ),
                 height=310,
                 bargap=0.35,
             )
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width="stretch")
         else:
             st.caption("No category data available yet.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -216,33 +194,33 @@ def render_stats_tab():
         fig_gauge = go.Figure(go.Indicator(
             mode="gauge+number+delta",
             value=round(rate_val, 1),
-            number=dict(suffix="%", font=dict(color="#e8eaf6", size=36)),
-            delta=dict(reference=20, suffix="%", increasing=dict(color="#e53935"), decreasing=dict(color="#43a047")),
+            number=dict(suffix="%", font=dict(color=text_col, size=36)),
+            delta=dict(reference=20, suffix="%", increasing=dict(color="#DC2626"), decreasing=dict(color="#16A34A")),
             gauge=dict(
-                axis=dict(range=[0, 100], tickcolor="#6b7280", tickfont=dict(color="#9ea7c9")),
-                bar=dict(color="#5865f2"),
+                axis=dict(range=[0, 100], tickcolor=sub_col, tickfont=dict(color=sub_col)),
+                bar=dict(color="#3B82F6"),
                 bgcolor="rgba(0,0,0,0)",
                 borderwidth=0,
                 steps=[
-                    dict(range=[0, 10], color="rgba(67,160,71,0.12)"),
-                    dict(range=[10, 30], color="rgba(245,167,35,0.12)"),
-                    dict(range=[30, 100], color="rgba(229,57,53,0.12)"),
+                    dict(range=[0, 10], color="rgba(22,163,74,0.18)"),
+                    dict(range=[10, 30], color="rgba(217,119,6,0.18)"),
+                    dict(range=[30, 100], color="rgba(220,38,38,0.18)"),
                 ],
                 threshold=dict(
-                    line=dict(color="#e53935", width=3),
+                    line=dict(color="#DC2626", width=3),
                     thickness=0.75,
                     value=30,
                 ),
             ),
-            title=dict(text="Flagged / Total Messages", font=dict(color="#9ea7c9", size=13)),
+            title=dict(text="Flagged / Total Messages", font=dict(color=sub_col, size=13)),
         ))
         fig_gauge.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="#c8d0e8"),
+            font=dict(color=text_col),
             margin=dict(t=30, b=20, l=30, r=30),
             height=280,
         )
-        st.plotly_chart(fig_gauge, use_container_width=True)
+        st.plotly_chart(fig_gauge, width="stretch")
         st.markdown("</div>", unsafe_allow_html=True)
 
     with gauge_col2:
@@ -254,33 +232,33 @@ def render_stats_tab():
         resolved = total_appeals - pending_appeals
         labels_ap = ["Pending", "Resolved"]
         values_ap = [pending_appeals, resolved]
-        colors_ap = ["#f5a623", "#43a047"]
+        colors_ap = ["#D97706", "#16A34A"]
 
         if total_appeals > 0:
             fig_ap = go.Figure(go.Pie(
                 labels=labels_ap,
                 values=values_ap,
                 hole=0.5,
-                marker=dict(colors=colors_ap, line=dict(color="#0e1117", width=2)),
+                marker=dict(colors=colors_ap, line=dict(color="#151D2A" if is_dark else "#FFFFFF", width=2)),
                 textinfo="percent+value",
                 textfont=dict(size=13, color="white"),
                 hovertemplate="<b>%{label}</b><br>%{value} appeals<extra></extra>",
             ))
             fig_ap.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
-                font=dict(color="#c8d0e8"),
+                font=dict(color=text_col),
                 margin=dict(t=10, b=10, l=10, r=10),
                 showlegend=True,
-                legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#9ea7c9")),
+                legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color=sub_col)),
                 height=280,
                 annotations=[dict(
                     text=f"<b>{total_appeals}</b><br><span style='font-size:10px'>Total</span>",
                     x=0.5, y=0.5,
-                    font=dict(size=16, color="#e8eaf6"),
+                    font=dict(size=16, color=text_col),
                     showarrow=False,
                 )],
             )
-            st.plotly_chart(fig_ap, use_container_width=True)
+            st.plotly_chart(fig_ap, width="stretch")
         else:
             st.info("No appeals submitted yet.")
         st.markdown("</div>", unsafe_allow_html=True)
@@ -295,5 +273,5 @@ def render_stats_tab():
         for cat, cnt in category_counts.items():
             rows.append({"Dimension": "Category", "Label": cat.replace("_", " ").title(), "Count": cnt})
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width="stretch", hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)

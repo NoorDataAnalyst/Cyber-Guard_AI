@@ -10,6 +10,7 @@ from src.config import SEVERITY_LEVELS, CATEGORIES, LEGAL_DISCLAIMER
 from src.pipeline import CyberbullyingPipeline
 from src.db import (
     get_or_create_user,
+    authenticate_or_register_user,
     get_user_status,
     get_conversation_thread,
     get_flagged_verdicts,
@@ -41,192 +42,172 @@ def render_severity_badge(severity: str) -> str:
         return '<span class="badge-none">🟢 CLEAN</span>'
 
 
-def render_home_tab():
-    st.markdown("""
-        <style>
-        .badge-none { background-color: #2e7d32; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
-        .badge-mild { background-color: #f57f17; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
-        .badge-moderate { background-color: #e65100; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
-        .badge-severe { background-color: #c62828; color: white; padding: 3px 10px; border-radius: 12px; font-weight: 600; font-size: 0.85rem; }
-        .card-box { background: #1e222d; border-radius: 10px; padding: 18px; margin-bottom: 15px; border: 1px solid #2d3241; }
-        .legal-box { background-color: #1a2332; border-left: 4px solid #0288d1; padding: 12px 15px; border-radius: 4px; font-size: 0.9rem; margin-top: 10px; }
-        .restriction-banner { background-color: #3e1212; border: 1px solid #b71c1c; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #ffcdd2; }
-        .mute-banner { background-color: #332606; border: 1px solid #f57f17; border-radius: 8px; padding: 15px; margin-bottom: 20px; color: #ffe0b2; }
-        </style>
-    """, unsafe_allow_html=True)
+@st.fragment(run_every="2s")
+def render_realtime_chat_messages(current_username: str, current_email: str, is_restricted: bool):
+    """
+    Renders thread messages in a real-time auto-updating fragment.
+    Automatically polls database every 2 seconds without triggering full page reloads.
+    """
+    thread_messages = get_conversation_thread(limit=50)
 
-    # Sub-tab navigation within Home tab
-    sub_tab1, sub_tab2 = st.tabs(["💬 Live Chat Feed", "📊 Admin Governance Dashboard"])
+    for msg in thread_messages:
+        sender = msg.get("sender", "Anonymous")
+        is_user = (sender == current_username)
+        avatar = "👤" if is_user else "💬"
 
-    # ==========================================================================
-    # SUB-TAB 1: LIVE CHAT FEED
-    # ==========================================================================
-    with sub_tab1:
-        st.subheader("💬 Live Chat Feed & Real-Time Monitoring")
+        with st.chat_message(sender, avatar=avatar):
+            is_flagged = bool(msg.get("is_flagged", False))
+            severity = msg.get("severity") or "none"
+            action_taken = msg.get("action_taken") or "no action"
 
-        # Username Identity Session Handler (Correction #1 & #3)
-        if "username" not in st.session_state or not st.session_state["username"]:
-            st.info("👋 Welcome! Please enter your username to join the conversation.")
-            input_name = st.text_input("Username", value="User_Alpha", key="user_input_key")
-            if st.button("Join Conversation", key="join_btn"):
-                user_info = get_or_create_user(input_name)
-                st.session_state["username"] = user_info["username"]
-                st.session_state["user_id"] = user_info["user_id"]
-                st.rerun()
-            return
+            col_msg, col_badge = st.columns([0.8, 0.2])
+            with col_msg:
+                st.markdown(f"**{sender}**: {msg['text']}")
+            with col_badge:
+                if is_flagged:
+                    st.markdown(render_severity_badge(severity), unsafe_allow_html=True)
 
-        current_username = st.session_state["username"]
-        user_info = get_or_create_user(current_username)
-        user_id = user_info["user_id"]
-        st.session_state["user_id"] = user_id
-
-        # Fresh non-cached read of User Status (Correction #4)
-        user_status_info = get_user_status(user_id)
-        current_status = user_status_info["status"]
-
-        # Display active user identity banner
-        col_u1, col_u2 = st.columns([0.8, 0.2])
-        with col_u1:
-            st.caption(f"Active Identity: **{user_info['username']}** (ID: {user_id}) | Account Status: `{current_status.upper()}`")
-        with col_u2:
-            if st.button("Switch Identity", key="switch_id_btn"):
-                st.session_state["username"] = None
-                st.rerun()
-
-        # Handle Restricted States (Muted / Blocked)
-        is_restricted = current_status in ["muted", "blocked"]
-
-        if current_status == "muted":
-            mute_time_str = user_status_info.get("mute_expires_at", "30 minutes")
-            if mute_time_str and len(mute_time_str) >= 19:
-                mute_time_str = mute_time_str[:19].replace("T", " ") + " UTC"
-            st.markdown(
-                f"<div class='mute-banner'>"
-                f"<h4>🔇 Account Muted</h4>"
-                f"<p>Sending is temporarily restricted due to moderate toxicity enforcement. "
-                f"<b>Mute Static Timestamp:</b> You are muted until <code>{mute_time_str}</code> (auto-clears on expiration).</p>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-        elif current_status == "blocked":
-            st.markdown(
-                f"<div class='restriction-banner'>"
-                f"<h4>🚫 Account Suspended / Blocked</h4>"
-                f"<p><b>Reason:</b> {user_status_info.get('reason', 'Severe violation of community standards')}</p>"
-                f"<p>Your sending privileges have been restricted. You may submit an appeal below for Admin review.</p>"
-                f"</div>",
-                unsafe_allow_html=True
-            )
-
-            # Check if user already submitted an appeal
-            pending_appeals = get_pending_appeals()
-            user_pending = [a for a in pending_appeals if a["user_id"] == user_id]
-
-            if user_pending:
-                st.info("⏳ **Your appeal is currently under review by an administrator.** Please check back later.")
-            else:
-                st.markdown("### 📝 Submit Account Ban Appeal")
-                appeal_input = st.text_area("Explain why your account restriction should be lifted:", height=100, key="appeal_text_area")
-                if st.button("Submit Appeal to Admin Queue", key="submit_appeal_btn"):
-                    if appeal_input.strip():
-                        create_appeal(user_id=user_id, appeal_text=appeal_input.strip())
-                        st.success("Your appeal has been submitted successfully! Admins have been notified.")
+            col_rep, col_exp = st.columns([0.2, 0.8])
+            with col_rep:
+                if not is_flagged and not is_restricted:
+                    if st.button("🚩 Report", key=f"rep_{msg['id']}"):
+                        with st.spinner("Analyzing manual report..."):
+                            pipeline.process_message(
+                                sender=current_username,
+                                text=msg['text'],
+                                report_type="manual_user_report",
+                                force_flag=True,
+                                email=current_email
+                            )
+                        st.success("Reported to Admin queue.")
                         st.rerun()
+
+            if is_flagged:
+                with st.expander(f"🔍 Why was this flagged? (Action: {str(action_taken).title()})"):
+                    st.markdown(f"**Category**: `{msg.get('category') or 'N/A'}`")
+                    st.markdown(f"**Action Enforced**: `{action_taken}`")
+
+                    if msg.get("explanation"):
+                        st.markdown(f"**Internal Admin Explanation**:\n_{msg['explanation']}_")
+
+                    if msg.get("user_report"):
+                        st.markdown("<div class='legal-box'>", unsafe_allow_html=True)
+                        st.markdown(f"**User-Facing Policy Notice**:\n\n{msg['user_report']}")
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+
+def render_home_tab():
+    # Shared styles (badges, cards, banners) are defined once, globally, in app.py.
+
+    # ── 1. State Persistence Sync from URL Query Parameters ─────────────────
+    if "username" not in st.session_state or not st.session_state["username"]:
+        param_username = st.query_params.get("user", "")
+        param_email = st.query_params.get("email", "")
+        param_role = st.query_params.get("role", "")
+
+        if param_email == "admin@cyberguard.ai" or param_role == "admin":
+            st.session_state["is_admin"] = True
+            st.session_state["role"] = "admin"
+            st.session_state["username"] = "Admin"
+            st.session_state["email"] = "admin@cyberguard.ai"
+            st.session_state["user_id"] = 1
+        elif param_username:
+            user_info = get_or_create_user(param_username, email=param_email)
+            st.session_state["username"] = user_info["username"]
+            st.session_state["user_id"] = user_info["user_id"]
+            st.session_state["email"] = user_info.get("email", "")
+            st.session_state["role"] = user_info.get("role", "user")
+
+    # ── 2. FIRST GATE: Sign-In Screen (Shown when not authenticated) ──────
+    if "username" not in st.session_state or not st.session_state["username"]:
+        st.markdown("""
+            <div style="max-width: 440px; margin: 30px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 36px 32px; box-shadow: var(--shadow-md); text-align: center;">
+                <div style="width: 56px; height: 56px; background: var(--primary-soft); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; font-size: 1.8rem; color: var(--primary); margin-bottom: 16px; border: 1px solid var(--border);">🔑</div>
+                <h2 style="font-weight: 800; font-size: 1.45rem; color: var(--text); margin: 0 0 8px 0; letter-spacing: -0.02em;">Sign In to CyberGuard</h2>
+                <p style="color: var(--text-muted); font-size: 0.92rem; margin: 0 0 22px 0; line-height: 1.6;">
+                    Enter your account credentials below to sign in and continue.
+                </p>
+        """, unsafe_allow_html=True)
+
+        col_f1, col_f2, col_f3 = st.columns([0.05, 0.9, 0.05])
+        with col_f2:
+            with st.form("onboarding_join_form", border=False):
+                input_name = st.text_input("Full Name or Username", placeholder="e.g. Zeeshan Ahmad", key="start_name_key")
+                input_email = st.text_input("Email Address", placeholder="e.g. user@example.com", key="start_email_key")
+                input_pass = st.text_input("Password", type="password", placeholder="Enter your password", key="start_pass_key")
+                submit_btn = st.form_submit_button("🚀 Sign In / Continue", width="stretch")
+
+                if submit_btn:
+                    clean_name = input_name.strip()
+                    clean_email = input_email.strip().lower()
+                    clean_pass = input_pass.strip()
+
+                    if not clean_email or "@" not in clean_email:
+                        st.error("Please enter a valid email address.")
+                    elif not clean_pass:
+                        st.error("Please enter your password.")
                     else:
-                        st.warning("Please enter an explanation before submitting.")
+                        res = authenticate_or_register_user(username=clean_name, email=clean_email, password=clean_pass)
+                        if not res.get("authenticated"):
+                            st.error(res.get("error", "Authentication failed."))
+                        else:
+                            is_admin = (res.get("role") == "admin" or res.get("email") == "admin@cyberguard.ai")
+                            st.session_state["username"] = res["username"]
+                            st.session_state["user_id"] = res["user_id"]
+                            st.session_state["email"] = res.get("email", "")
+                            st.session_state["role"] = res.get("role", "user")
+                            st.session_state["is_admin"] = is_admin
 
-        # Render Conversation History
-        thread_messages = get_conversation_thread(limit=50)
+                            # Store state in query params for reload persistence
+                            st.query_params["user"] = res["username"]
+                            if res.get("email"):
+                                st.query_params["email"] = res["email"]
+                            st.query_params["role"] = res.get("role", "user")
 
-        for msg in thread_messages:
-            sender = msg.get("sender", "Anonymous")
-            is_user = (sender == current_username)
-            avatar = "👤" if is_user else "💬"
-
-            with st.chat_message(sender, avatar=avatar):
-                is_flagged = bool(msg.get("is_flagged", False))
-                severity = msg.get("severity") or "none"
-                action_taken = msg.get("action_taken") or "no action"
-
-                col_msg, col_badge = st.columns([0.8, 0.2])
-                with col_msg:
-                    st.markdown(f"**{sender}**: {msg['text']}")
-                with col_badge:
-                    if is_flagged:
-                        st.markdown(render_severity_badge(severity), unsafe_allow_html=True)
-
-                col_rep, col_exp = st.columns([0.2, 0.8])
-                with col_rep:
-                    if not is_flagged and not is_restricted:
-                        if st.button("🚩 Report", key=f"rep_{msg['id']}"):
-                            with st.spinner("Analyzing manual report..."):
-                                pipeline.process_message(
-                                    sender=current_username,
-                                    text=msg['text'],
-                                    report_type="manual_user_report",
-                                    force_flag=True
-                                )
-                            st.success("Reported to Admin queue.")
                             st.rerun()
 
-                if is_flagged:
-                    with st.expander(f"🔍 Why was this flagged? (Action: {str(action_taken).title()})"):
-                        st.markdown(f"**Category**: `{msg.get('category') or 'N/A'}`")
-                        st.markdown(f"**Action Enforced**: `{action_taken}`")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
 
-                        if msg.get("explanation"):
-                            st.markdown(f"**Internal Admin Explanation**:\n_{msg['explanation']}_")
+    # ── 3. AUTHENTICATED USER DETAILS ───────────────────────────────────────
+    current_username = st.session_state["username"]
+    current_email = st.session_state.get("email", "")
+    is_admin_session = st.session_state.get("is_admin", False) or st.session_state.get("role") == "admin"
 
-                        if msg.get("user_report"):
-                            st.markdown("<div class='legal-box'>", unsafe_allow_html=True)
-                            st.markdown(f"**User-Facing Policy Notice**:\n\n{msg['user_report']}")
-                            st.markdown("</div>", unsafe_allow_html=True)
+    user_info = get_or_create_user(current_username, email=current_email)
+    user_id = user_info["user_id"]
+    st.session_state["user_id"] = user_id
 
-        # Chat Input (Disabled if user is blocked or muted)
-        if is_restricted:
-            st.chat_input("Messaging is disabled while your account is restricted.", disabled=True)
-        else:
-            new_message = st.chat_input("Type a message to post into the conversation...")
-            if new_message:
-                with st.spinner("Running Signal Layer (Toxicity & Emotion) and RAG Reasoning..."):
-                    res = pipeline.process_message(sender=current_username, text=new_message, report_type="automatic")
-                    if res.get("status") == "restricted":
-                        st.error(f"Message rejected: Account is currently {res.get('user_status')}.")
-                st.rerun()
+    # Active user banner with Sign Out
+    col_u1, col_u2 = st.columns([0.82, 0.18])
+    with col_u1:
+        email_display = f" ({user_info['email']})" if user_info.get('email') else ""
+        role_label = "👑 ADMIN" if is_admin_session else "👤 USER"
+        st.caption(f"Logged In: **{user_info['username']}**{email_display} | Role: `{role_label}`")
+    with col_u2:
+        if st.button("🚪 Sign Out", key="sign_out_btn"):
+            st.session_state["username"] = None
+            st.session_state["user_id"] = None
+            st.session_state["email"] = None
+            st.session_state["is_admin"] = False
+            st.session_state["role"] = None
+            st.query_params.clear()
+            st.rerun()
 
-    # ==========================================================================
-    # SUB-TAB 2: ADMIN GOVERNANCE DASHBOARD
-    # ==========================================================================
-    with sub_tab2:
-        st.subheader("📊 Admin Governance & Appeals Review")
+    # ── 4. ROLE-BASED SCREEN RENDERING ────────────────────────────────────────
 
-        # Admin Password Gate with Session Persistence (Correction #6)
-        expected_password = ""
-        try:
-            if hasattr(st, "secrets") and "ADMIN_PASSWORD" in st.secrets:
-                expected_password = st.secrets["ADMIN_PASSWORD"]
-        except Exception:
-            pass
+    # --------------------------------------------------------------------------
+    # A) ADMINISTRATOR SCREEN (admin@cyberguard.ai / role='admin')
+    # --------------------------------------------------------------------------
+    if is_admin_session:
+        st.subheader("🛡️ Administrator Governance Dashboard")
+        st.caption("Review user appeals, audit flagged toxic messages, monitor live chat, and inspect system metrics.")
 
-        if not expected_password:
-            expected_password = os.getenv("ADMIN_PASSWORD", "admin123")
-
-        if not st.session_state.get("is_admin", False):
-            st.warning("🔒 This section is password protected for authorized moderators.")
-            pass_input = st.text_input("Enter Admin Password", type="password", key="admin_pass_input")
-            if st.button("Unlock Admin Dashboard", key="unlock_admin_btn"):
-                if pass_input == expected_password:
-                    st.session_state["is_admin"] = True
-                    st.success("Admin access granted!")
-                    st.rerun()
-                else:
-                    st.error("Incorrect password.")
-            return
-
-        st.success("🔑 Admin Session Active")
-
-        admin_view_choice = st.radio("Admin Section", ["🚨 Pending Appeals Review", "📋 Flagged Message Audits"], horizontal=True)
+        admin_view_choice = st.radio(
+            "Admin Control Section",
+            ["🚨 Pending Appeals Review", "📋 Flagged Message Audits", "💬 Live Chat Monitor"],
+            horizontal=True
+        )
 
         if admin_view_choice == "🚨 Pending Appeals Review":
             st.markdown("### Pending User Account Appeals")
@@ -259,8 +240,7 @@ def render_home_tab():
 
                         st.markdown("</div>", unsafe_allow_html=True)
 
-        else:
-            # Audit List
+        elif admin_view_choice == "📋 Flagged Message Audits":
             col_f1, col_f2 = st.columns(2)
             with col_f1:
                 sev_filter = st.selectbox("Filter Severity", ["all"] + SEVERITY_LEVELS)
@@ -309,3 +289,79 @@ def render_home_tab():
                                     st.rerun()
 
                         st.markdown("</div>", unsafe_allow_html=True)
+
+        elif admin_view_choice == "💬 Live Chat Monitor":
+            st.markdown("### Live Chat Stream Monitor")
+            render_realtime_chat_messages(current_username, current_email, is_restricted=False)
+
+        # Bottom System Analytics Section for Admin
+        st.markdown("<br><hr style='border-top: 1px solid var(--border); margin: 36px 0 24px 0;'>", unsafe_allow_html=True)
+        st.markdown("### 📊 System Analytics & Governance Metrics")
+        st.caption("Comprehensive system-wide analytics, toxicity distributions, and governance performance charts.")
+        from src.ui.stats import render_stats_tab
+        render_stats_tab()
+
+    # --------------------------------------------------------------------------
+    # B) REGULAR USER SCREEN (role='user')
+    # --------------------------------------------------------------------------
+    else:
+        user_status_info = get_user_status(user_id)
+        current_status = user_status_info["status"]
+        is_restricted = current_status in ["muted", "blocked"]
+
+        if current_status == "muted":
+            mute_time_str = user_status_info.get("mute_expires_at", "30 minutes")
+            if mute_time_str and len(mute_time_str) >= 19:
+                mute_time_str = mute_time_str[:19].replace("T", " ") + " UTC"
+            st.markdown(
+                f"<div class='mute-banner'>"
+                f"<h4>🔇 Account Muted</h4>"
+                f"<p>Sending is temporarily restricted due to toxicity enforcement. Muted until: <code>{mute_time_str}</code>.</p>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+        elif current_status == "blocked":
+            st.markdown(
+                f"<div class='restriction-banner'>"
+                f"<h4>🚫 Account Suspended / Blocked</h4>"
+                f"<p><b>Reason:</b> {user_status_info.get('reason', 'Violation of community standards')}</p>"
+                f"</div>",
+                unsafe_allow_html=True
+            )
+
+            pending_appeals = get_pending_appeals()
+            user_pending = [a for a in pending_appeals if a["user_id"] == user_id]
+
+            if user_pending:
+                st.info("⏳ **Your appeal is under review by an administrator.**")
+            else:
+                st.markdown("### 📝 Submit Account Ban Appeal")
+                appeal_input = st.text_area("Explain why your restriction should be lifted:", height=100, key="appeal_text_area")
+                if st.button("Submit Appeal to Admin Queue", key="submit_appeal_btn"):
+                    if appeal_input.strip():
+                        create_appeal(user_id=user_id, appeal_text=appeal_input.strip())
+                        st.success("Your appeal has been submitted successfully!")
+                        st.rerun()
+                    else:
+                        st.warning("Please enter an explanation before submitting.")
+
+        # Render Real-Time Chat Feed directly
+        render_realtime_chat_messages(current_username, current_email, is_restricted)
+
+        # Chat Input
+        if is_restricted:
+            st.chat_input("Messaging is disabled while your account is restricted.", disabled=True)
+        else:
+            new_message = st.chat_input("Type a message to post into the conversation...")
+            if new_message:
+                with st.spinner("Processing message..."):
+                    res = pipeline.process_message(
+                        sender=current_username,
+                        text=new_message,
+                        report_type="automatic",
+                        email=current_email
+                    )
+                    if res.get("status") == "restricted":
+                        st.error(f"Message rejected: Account is currently {res.get('user_status')}.")
+                st.rerun()

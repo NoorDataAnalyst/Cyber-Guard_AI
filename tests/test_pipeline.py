@@ -15,7 +15,9 @@ def test_pipeline_clean_message():
 
 def test_pipeline_toxic_message():
     pipe = CyberbullyingPipeline()
-    res = pipe.process_message(sender="Bob", text="You are completely stupid, shutdown your account idiot!")
+    import uuid
+    test_user = f"Bob_{uuid.uuid4().hex[:6]}"
+    res = pipe.process_message(sender=test_user, text="You are completely stupid, shutdown your account idiot!")
     assert res["is_flagged"] is True
     assert res["action_taken"] in ["soft warning", "mute sender", "block message"]
     assert "explanation" in res

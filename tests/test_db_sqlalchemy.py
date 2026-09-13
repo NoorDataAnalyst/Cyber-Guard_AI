@@ -185,3 +185,32 @@ class TestGetAnalyticsData:
         data = get_analytics_data()
         assert data["total_messages"] == 0
         assert data["flagged_messages"] == 0
+
+
+class TestAuthenticateOrRegisterUser:
+    def test_admin_authentication_success(self):
+        from src.db import authenticate_or_register_user
+        res = authenticate_or_register_user(username="Admin", email="admin@cyberguard.ai", password="admin123")
+        assert res["authenticated"] is True
+        assert res["role"] == "admin"
+
+    def test_admin_authentication_wrong_password(self):
+        from src.db import authenticate_or_register_user
+        res = authenticate_or_register_user(username="Admin", email="admin@cyberguard.ai", password="wrongpassword")
+        assert res["authenticated"] is False
+        assert "error" in res
+
+    def test_user_registration_and_authentication(self):
+        from src.db import authenticate_or_register_user
+        # Register user
+        reg = authenticate_or_register_user(username="test_user", email="user@example.com", password="mypassword123")
+        assert reg["authenticated"] is True
+        assert reg["role"] == "user"
+
+        # Correct password login
+        login_ok = authenticate_or_register_user(email="user@example.com", password="mypassword123")
+        assert login_ok["authenticated"] is True
+
+        # Incorrect password login
+        login_bad = authenticate_or_register_user(email="user@example.com", password="wrongpassword")
+        assert login_bad["authenticated"] is False

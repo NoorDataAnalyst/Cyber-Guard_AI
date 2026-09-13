@@ -41,7 +41,10 @@ class EmbeddingEncoder:
             from sentence_transformers import SentenceTransformer
             logger.info(f"Loading sentence transformer '{self.model_name}'...")
             self._model = SentenceTransformer(self.model_name)
-            self.dimension = self._model.get_sentence_embedding_dimension()
+            if hasattr(self._model, "get_embedding_dimension"):
+                self.dimension = self._model.get_embedding_dimension()
+            elif hasattr(self._model, "get_sentence_embedding_dimension"):
+                self.dimension = self._model.get_sentence_embedding_dimension()
             logger.info(f"Sentence transformer loaded with dimension {self.dimension}.")
         except Exception as e:
             logger.warning(f"Unable to load SentenceTransformer: {e}. Using TF-IDF/random dense fallback encoder.")

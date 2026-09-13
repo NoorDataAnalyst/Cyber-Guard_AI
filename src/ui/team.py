@@ -6,70 +6,41 @@ import streamlit as st
 
 
 TEAM_MEMBERS = [
-    {"name": "Hira Saleem",        "avatar": "👩‍💻"},
-    {"name": "Muhammad Usman",     "avatar": "👨‍💻"},
-    {"name": "Peer Talha Dawood",  "avatar": "👨‍💻"},
-    {"name": "Shumail Iqbal",      "avatar": "👨‍💻"},
-    {"name": "Noor ul Ain Zahid",  "avatar": "👩‍💻"},
-    {"name": "Zeeshan",            "avatar": "👨‍💻"},
+    {
+        "name": "Hira Saleem",
+        "avatar": "👩‍💻",
+        "linkedin": "https://www.linkedin.com/in/hira-saleem-595496180/"
+    },
+    {
+        "name": "Muhammad Usman",
+        "avatar": "👨‍💻",
+        "linkedin": "https://www.linkedin.com/in/iusman07/"
+    },
+    {
+        "name": "Peer Talha Dawood",
+        "avatar": "👨‍💻",
+        "linkedin": "https://www.linkedin.com/in/peer-talha-khan-2b1911228/"
+    },
+    {
+        "name": "Shumail Iqbal",
+        "avatar": "👨‍💻",
+        "linkedin": "https://www.linkedin.com/in/shumail-iqbal-4ab23b431/"
+    },
+    {
+        "name": "Noor ul Ain Zahid",
+        "avatar": "👩‍💻",
+        "linkedin": "https://www.linkedin.com/in/noor-ul-ain-zahid-588895341/"
+    },
+    {
+        "name": "Zeeshan Ahmad",
+        "avatar": "👨‍💻",
+        "linkedin": "https://www.linkedin.com/in/zeeshier/"
+    },
 ]
 
 
 def render_team_tab():
-    st.markdown("""
-        <style>
-        .team-card {
-            background: linear-gradient(135deg, #1e222d 0%, #252a37 100%);
-            border: 1px solid #2d3241;
-            border-radius: 14px;
-            padding: 28px 24px;
-            margin-bottom: 18px;
-            text-align: center;
-            transition: border-color 0.2s ease;
-        }
-        .team-card:hover {
-            border-color: #5865f2;
-        }
-        .team-avatar {
-            font-size: 2.8rem;
-            display: block;
-            margin-bottom: 12px;
-        }
-        .team-name {
-            font-size: 1.1rem;
-            font-weight: 700;
-            color: #e8eaf6;
-            margin: 0;
-        }
-        .section-header {
-            text-align: center;
-            margin-bottom: 36px;
-        }
-        .section-header h2 {
-            font-size: 2rem;
-            font-weight: 800;
-            background: linear-gradient(135deg, #5865f2, #8b9cf7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin: 0;
-        }
-        .section-header p {
-            color: #6b7280;
-            font-size: 1rem;
-            margin-top: 8px;
-        }
-        .ack-box {
-            background: linear-gradient(135deg, #1a2036, #1e2a45);
-            border: 1px solid #2d3a5a;
-            border-radius: 12px;
-            padding: 24px 30px;
-            margin-top: 32px;
-        }
-        .ack-box h4 { color: #8b9cf7; margin-top: 0; }
-        .ack-box ul  { color: #9ea7c9; line-height: 2; }
-        </style>
-    """, unsafe_allow_html=True)
-
+    # Shared styles (.team-card, .section-header, .ack-box) live globally in app.py.
     st.markdown("""
         <div class="section-header">
             <h2>👥 Meet the Team</h2>
@@ -84,6 +55,10 @@ def render_team_tab():
                 <div class="team-card">
                     <span class="team-avatar">{member['avatar']}</span>
                     <p class="team-name">{member['name']}</p>
+                    <a href="{member['linkedin']}" target="_blank" class="team-linkedin-btn">
+                        <svg style="width: 14px; height: 14px; fill: currentColor; vertical-align: text-bottom; margin-right: 4px;" viewBox="0 0 24 24"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"/></svg>
+                        LinkedIn Profile
+                    </a>
                 </div>
             """, unsafe_allow_html=True)
 

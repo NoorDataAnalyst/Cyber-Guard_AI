@@ -9,20 +9,6 @@ def render_features_tab():
     st.title("✨ Key Features & Capabilities")
     st.caption("What CyberGuard AI actually does — grounded in the implemented pipeline")
 
-    st.markdown("""
-        <style>
-        .feature-card {
-            background: #1e222d;
-            border: 1px solid #2d3241;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            height: 100%;
-        }
-        .feature-icon { font-size: 2rem; margin-bottom: 10px; }
-        </style>
-    """, unsafe_allow_html=True)
-
     col1, col2 = st.columns(2)
 
     with col1:

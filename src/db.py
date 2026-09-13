@@ -42,6 +42,9 @@ class UserModel(Base):
 
     user_id = Column(Integer, primary_key=True, autoincrement=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), nullable=True)
+    password = Column(String(255), nullable=True)
+    role = Column(String(20), default="user", nullable=False)  # active: 'user' or 'admin'
     status = Column(String(20), default="active", nullable=False)  # active, muted, blocked
     created_at = Column(String(50), default=lambda: datetime.utcnow().isoformat())
 
@@ -147,7 +150,7 @@ def _probe_sqlite_schema(engine) -> bool:
     False if any OperationalError (e.g. 'no such column') is caught.
     """
     probe_queries = [
-        "SELECT user_id, username, status FROM users LIMIT 1",
+        "SELECT user_id, username, email, password, role, status FROM users LIMIT 1",
         "SELECT message_id, user_id, text, is_flagged FROM messages LIMIT 1",
         "SELECT verdict_id, message_id, severity, category, confidence FROM verdicts LIMIT 1",
         "SELECT action_id, action_type, taken_by, timestamp FROM actions LIMIT 1",
@@ -190,9 +193,6 @@ def _create_db_engine():
     Base.metadata.create_all(engine)
 
     # Defensive schema check (SQLite only) ─────────────────────────────────
-    # create_all() does NOT alter existing tables. If a stale .db file exists
-    # from an older schema version, probe each table and recreate the file if
-    # any expected column is missing.
     if not _probe_sqlite_schema(engine):
         logger.warning(
             "Stale SQLite schema detected — missing columns found. "
@@ -216,8 +216,55 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def init_db() -> None:
-    """Ensures database tables are created."""
+    """Ensures database tables are created, migrated, and seeded with Admin account."""
     Base.metadata.create_all(bind=engine)
+    from sqlalchemy import text as sa_text
+    with engine.connect() as conn:
+        try:
+            conn.execute(sa_text("ALTER TABLE users ADD COLUMN email VARCHAR(255)"))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(sa_text("ALTER TABLE users ADD COLUMN password VARCHAR(255)"))
+            conn.commit()
+        except Exception:
+            pass
+        try:
+            conn.execute(sa_text("ALTER TABLE users ADD COLUMN role VARCHAR(20) DEFAULT 'user'"))
+            conn.commit()
+        except Exception:
+            pass
+
+    # Pre-seed Admin Account: admin@cyberguard.ai / admin123
+    session = SessionLocal()
+    try:
+        admin_user = session.query(UserModel).filter(UserModel.email == "admin@cyberguard.ai").first()
+        if not admin_user:
+            admin_user = session.query(UserModel).filter(UserModel.username == "Admin").first()
+
+        if not admin_user:
+            now_iso = datetime.utcnow().isoformat()
+            admin_user = UserModel(
+                username="Admin",
+                email="admin@cyberguard.ai",
+                password="admin123",
+                role="admin",
+                status="active",
+                created_at=now_iso,
+            )
+            session.add(admin_user)
+            session.commit()
+        else:
+            if admin_user.email != "admin@cyberguard.ai" or admin_user.role != "admin" or admin_user.password != "admin123":
+                admin_user.email = "admin@cyberguard.ai"
+                admin_user.role = "admin"
+                admin_user.password = "admin123"
+                session.commit()
+    except Exception as e:
+        logger.warning(f"Note during admin seeding: {e}")
+    finally:
+        session.close()
 
 
 def get_db_session():
@@ -229,15 +276,106 @@ def get_db_session():
 # Specific Named DB Functions Required
 # ==============================================================================
 
-def get_or_create_user(username: str) -> Dict[str, Any]:
+def authenticate_or_register_user(
+    username: Optional[str] = None,
+    email: Optional[str] = None,
+    password: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Authenticates an existing user by email/username + password, or registers a new user.
+    Special cases admin@cyberguard.ai with password admin123 -> role='admin'.
+    """
+    clean_email = str(email).strip().lower() if email and str(email).strip() else ""
+    clean_pass = str(password).strip() if password else ""
+    clean_name = str(username).strip() if username and str(username).strip() else ""
+
+    # Special Admin credential check
+    if clean_email == "admin@cyberguard.ai" or (clean_name.lower() == "admin" and not clean_email):
+        clean_email = "admin@cyberguard.ai"
+        if clean_pass != "admin123":
+            return {"authenticated": False, "error": "Invalid admin password. Admin login requires password 'admin123'."}
+
+    session = SessionLocal()
+    try:
+        user = None
+        if clean_email:
+            user = session.query(UserModel).filter(UserModel.email == clean_email).first()
+        if not user and clean_name:
+            user = session.query(UserModel).filter(UserModel.username == clean_name).first()
+
+        if user:
+            # Validate password if user has a password configured
+            if user.password and clean_pass and user.password != clean_pass:
+                return {"authenticated": False, "error": "Incorrect password for this account."}
+            # Set password if missing
+            if not user.password and clean_pass:
+                user.password = clean_pass
+                session.commit()
+            # Update email if missing
+            if clean_email and not user.email:
+                user.email = clean_email
+                session.commit()
+
+            session.refresh(user)
+            role = getattr(user, "role", "user") or ("admin" if user.email == "admin@cyberguard.ai" else "user")
+            return {
+                "authenticated": True,
+                "user_id": user.user_id,
+                "username": user.username,
+                "email": user.email,
+                "role": role,
+                "status": user.status,
+                "created_at": user.created_at,
+            }
+
+        # User does not exist — register new account
+        if not clean_name:
+            clean_name = clean_email.split("@")[0] if clean_email else "Anonymous_User"
+
+        final_name = clean_name
+        existing = session.query(UserModel).filter(UserModel.username == final_name).first()
+        if existing:
+            suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
+            final_name = f"{clean_name}_{suffix}"
+
+        role = "admin" if clean_email == "admin@cyberguard.ai" else "user"
+        now_iso = datetime.utcnow().isoformat()
+        new_user = UserModel(
+            username=final_name,
+            email=clean_email if clean_email else None,
+            password=clean_pass if clean_pass else None,
+            role=role,
+            status="active",
+            created_at=now_iso,
+        )
+        session.add(new_user)
+        session.commit()
+        session.refresh(new_user)
+
+        return {
+            "authenticated": True,
+            "user_id": new_user.user_id,
+            "username": new_user.username,
+            "email": new_user.email,
+            "role": new_user.role,
+            "status": new_user.status,
+            "created_at": new_user.created_at,
+        }
+    finally:
+        session.close()
+
+
+def get_or_create_user(username: str, email: Optional[str] = None, password: Optional[str] = None) -> Dict[str, Any]:
     """
     Returns user row dictionary. Creates user if missing.
-    If username collision occurs on a new user creation, appends a short suffix (e.g. username_a1b2).
+    Compatible wrapper delegating to authenticate_or_register_user.
     """
-    clean_name = str(username).strip()
-    if not clean_name:
-        clean_name = "Anonymous_User"
+    auth_res = authenticate_or_register_user(username=username, email=email, password=password)
+    if auth_res.get("authenticated"):
+        return auth_res
 
+    # Fallback read
+    clean_name = str(username).strip() or "Anonymous_User"
     session = SessionLocal()
     try:
         user = session.query(UserModel).filter(UserModel.username == clean_name).first()
@@ -245,28 +383,18 @@ def get_or_create_user(username: str) -> Dict[str, Any]:
             return {
                 "user_id": user.user_id,
                 "username": user.username,
+                "email": user.email,
+                "role": getattr(user, "role", "user") or "user",
                 "status": user.status,
                 "created_at": user.created_at,
             }
-
-        # Check collision and generate unique username if needed
-        final_username = clean_name
-        existing = session.query(UserModel).filter(UserModel.username == final_username).first()
-        if existing:
-            suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=4))
-            final_username = f"{clean_name}_{suffix}"
-
-        now_iso = datetime.utcnow().isoformat()
-        new_user = UserModel(username=final_username, status="active", created_at=now_iso)
-        session.add(new_user)
-        session.commit()
-        session.refresh(new_user)
-
         return {
-            "user_id": new_user.user_id,
-            "username": new_user.username,
-            "status": new_user.status,
-            "created_at": new_user.created_at,
+            "user_id": 1,
+            "username": clean_name,
+            "email": email,
+            "role": "admin" if email == "admin@cyberguard.ai" else "user",
+            "status": "active",
+            "created_at": datetime.utcnow().isoformat(),
         }
     finally:
         session.close()
@@ -560,10 +688,10 @@ def get_conversation_thread(limit: int = 50) -> List[Dict[str, Any]]:
             session.query(MessageModel, UserModel, VerdictModel)
             .outerjoin(UserModel, MessageModel.user_id == UserModel.user_id)
             .outerjoin(VerdictModel, MessageModel.message_id == VerdictModel.message_id)
-            .order_by(MessageModel.message_id.asc())
+            .order_by(MessageModel.message_id.desc())
             .limit(limit)
         )
-        rows = query.all()
+        rows = list(reversed(query.all()))
         results = []
         for msg, user, verd in rows:
             results.append({

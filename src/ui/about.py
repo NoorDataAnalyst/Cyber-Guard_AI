@@ -73,6 +73,7 @@ def render_about_tab():
     st.graphviz_chart("""
     digraph CyberGuardPipeline {
         rankdir=TB;
+        bgcolor="transparent";
         node [
             shape=box,
             style="rounded,filled",
@@ -80,49 +81,49 @@ def render_about_tab():
             fontsize=12,
             margin="0.25,0.12"
         ];
-        edge [fontsize=10, fontname="Helvetica"];
+        edge [fontsize=10, fontname="Helvetica", color="#94A3B8", fontcolor="#475569"];
 
-        // ── Nodes ─────────────────────────────────────────────────
+        // ── Nodes (light surfaces, colored borders, dark readable text) ──
         Message     [label="📨  New Message\\n(sender + text)",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#5865f2"];
+                      fillcolor="#EEF1FE", fontcolor="#1F2937", color="#3B5BDB"];
 
         PreCheck    [label="🔒  Restriction Pre-Check\\n(blocked / muted?)",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#f5a623",
+                      fillcolor="#FFF6E5", fontcolor="#1F2937", color="#D97706",
                       shape=diamond];
 
         Rejected    [label="🚫  Message Rejected\\n(account restricted)",
-                      fillcolor="#3e1212", fontcolor="#ffcdd2", color="#c62828"];
+                      fillcolor="#FDECEC", fontcolor="#991B1B", color="#DC2626"];
 
         SignalLayer [label="⚡  Signal Layer\\ntoxic-bert  +  roberta-go_emotions",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#5865f2"];
+                      fillcolor="#EEF1FE", fontcolor="#1F2937", color="#3B5BDB"];
 
         FlagGate    [label="🚦  Flag Decision Gate\\ntoxicity score ≥ 0.50\\nor manual report?",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#f5a623",
+                      fillcolor="#FFF6E5", fontcolor="#1F2937", color="#D97706",
                       shape=diamond];
 
         Logged      [label="✅  Logged Clean\\n(no further processing)",
-                      fillcolor="#1b3324", fontcolor="#c8e6c9", color="#43a047"];
+                      fillcolor="#E6F4EA", fontcolor="#166534", color="#16A34A"];
 
         Retrieval   [label="📚  3-Index FAISS Retrieval\\n(a) Thread Context\\n(b) Precedent Examples\\n(c) PECA 2016 / FIA Policy",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#5865f2"];
+                      fillcolor="#EEF1FE", fontcolor="#1F2937", color="#3B5BDB"];
 
         LLMAgent    [label="🤖  LLM Reasoning Agent\\nAnthropic Claude  (Gemini fallback)\\n→ JSON verdict",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#8b9cf7"];
+                      fillcolor="#F1EEFE", fontcolor="#1F2937", color="#7C3AED"];
 
         PolicyEng   [label="⚖️  Policy Engine\\nSeverity → Action",
-                      fillcolor="#1a1e2b", fontcolor="#e8eaf6", color="#5865f2"];
+                      fillcolor="#EEF1FE", fontcolor="#1F2937", color="#3B5BDB"];
 
         ActWarn     [label="🟡  Mild\\nSoft Warning\\n(logged)",
-                      fillcolor="#332606", fontcolor="#ffe0b2", color="#f57f17"];
+                      fillcolor="#FFF6E5", fontcolor="#92400E", color="#D97706"];
 
         ActMute     [label="🟠  Moderate\\nMute 30 min\\n(auto-expires)",
-                      fillcolor="#2d1a00", fontcolor="#ffcc80", color="#e65100"];
+                      fillcolor="#FFE9DB", fontcolor="#9A3412", color="#C2410C"];
 
         ActBlock    [label="🔴  Severe\\nAccount Blocked\\n+ Appeal Queue",
-                      fillcolor="#3e1212", fontcolor="#ffcdd2", color="#c62828"];
+                      fillcolor="#FDECEC", fontcolor="#991B1B", color="#DC2626"];
 
         Admin       [label="🛡️  Admin Dashboard\\nAudit · Override · Approve Appeal",
-                      fillcolor="#1a1e2b", fontcolor="#8b9cf7", color="#5865f2"];
+                      fillcolor="#F1EEFE", fontcolor="#5B21B6", color="#7C3AED"];
 
         // ── Edges ─────────────────────────────────────────────────
         Message     -> PreCheck;
@@ -144,8 +145,7 @@ def render_about_tab():
 
     st.markdown("---")
     st.markdown("""
-    <div style="background:#1a2332; border-left:4px solid #0288d1; padding:12px 15px;
-                border-radius:4px; font-size:0.88rem; color:#9ea7c9;">
+    <div class="legal-box">
     <b>Legal Notice</b>: This system references Pakistan's Prevention of Electronic Crimes Act
     (PECA) 2016 and FIA Cyber Crime Wing policy corpus for educational and research purposes
     only. It does not constitute formal legal advice.
