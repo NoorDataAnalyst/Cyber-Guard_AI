@@ -82,7 +82,7 @@ streamlit run app.py
 ```
 
 The app will be available at `http://localhost:8501`.
-
+Link for streamlit Deployed app: https://cyber-guardai.streamlit.app/ 
 ---
 
 ## ☁️ Supabase Setup (Production Persistence)
